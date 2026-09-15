@@ -1,0 +1,28 @@
+* text=auto
+.gitattributes text eol=lf
+.gitignore text eol=lf
+
+# Keep source and documentation portable, including robot-side shell scripts.
+*.md text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.ps1 text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+CMakeLists.txt text eol=lf
+*.projbuild text eol=lf
+*.defaults text eol=lf
+
+# Capture files and fixtures are evidence; preserve their exact bytes.
+*.csv binary
+*.log binary
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.bin binary
+*.img binary
+*.zip binary
+*.sig binary

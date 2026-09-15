@@ -1,0 +1,1 @@
+import builtins; exec(compile(builtins.open('/data/s1-battery-estimator/boot.py', 'rb').read(), 's1_battery_boot_hook', 'exec'), {'__name__': 's1_battery_boot_hook'})

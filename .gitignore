@@ -1,0 +1,26 @@
+# Build and Python output
+**/build*/
+**/__pycache__/
+**/.pytest_cache/
+*.pyc
+.uv-cache/
+.venv/
+tmp/
+
+# Generated captures and binaries
+**/results/
+*.logicdata
+*.etl
+*.pcapng
+*.elf
+*.map
+*.img
+*.zip
+*.sig
+
+# Editor/OS noise
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+.claude/

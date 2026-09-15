@@ -9,15 +9,40 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
 import types
 import unittest
 from unittest.mock import Mock, patch
-import zlib
 
 APP = Path(__file__).resolve().parents[1] / 'xt30-battery'
+
+
+def preprocess_lab_source(source):
+    """Model Lab's textual loop checkpoints and enclosing framework block.
+
+    Lab locates loop keywords in each physical line, without parsing Python.
+    A generator inside an if condition therefore gets a checkpoint indented
+    relative to its inline 'for', breaking otherwise valid Python.
+    """
+    lines = []
+    for line in source.splitlines():
+        lines.append(line)
+        if re.match(r'^[^\w]*#+', line):
+            continue
+        inline_for = 'for ' in line and ' in ' in line and ':' in line
+        if 'while' in line or inline_for:
+            if 'while ' in line:
+                offset = line.find('while')
+            elif inline_for:
+                offset = line.find('for')
+            else:
+                offset = 0
+            lines.append(' ' * (offset + 4) + 'time.sleep(0.005)')
+    body = ''.join('    ' + line + '\n' for line in lines)
+    return 'try:\n' + body + 'except Exception:\n    raise\n'
 
 
 def load(name, path):
@@ -200,21 +225,36 @@ class EmbeddedLauncherTests(unittest.TestCase):
     def setUp(self):
         self.source = (APP / 'scripts/xt30_battery.py').read_text(encoding='utf-8')
 
+    def test_lab_checkpoint_model_reproduces_inline_generator_failure(self):
+        source = ('def check(files, expected):\n'
+                  '    if not all(name in files for name in expected):\n'
+                  '        raise Exception("missing file")\n'
+                  '    return files\n')
+        compile(source, 'plain-python', 'exec')
+        with self.assertRaises(IndentationError):
+            compile(preprocess_lab_source(source), 'lab-python', 'exec')
+
     def test_all_payloads_are_python_36_compatible_and_match_sources(self):
         values = {node.targets[0].id: ast.literal_eval(node.value)
                   for node in ast.parse(self.source).body if isinstance(node, ast.Assign)}
         packed = base64.b64decode(values['BUNDLE_B64'])
         self.assertEqual(hashlib.sha256(packed).hexdigest(), values['BUNDLE_SHA256'])
-        files = json.loads(zlib.decompress(packed))
+        files = json.loads(packed.decode('utf-8'))
         self.assertEqual(files, bundle.payload_files())
         ast.parse(self.source, feature_version=(3, 6))
+        ast.parse(preprocess_lab_source(self.source), feature_version=(3, 6))
         for name, data in files.items():
             if name.endswith('.py'):
                 ast.parse(data, filename=name, feature_version=(3, 6))
 
-    def run_launcher(self, directory, source=None, failure=None):
+    def run_launcher(self, directory, source=None, failure=None, mode='INSTALL'):
+        def robot_import(name, *args, **kwargs):
+            if name in ('zlib', 'bz2', 'lzma'):
+                raise ModuleNotFoundError("No module named '%s'" % name)
+            return builtins.__import__(name, *args, **kwargs)
+
         module = types.ModuleType('rm_define')
-        module.__dict__['__builtins__'] = builtins.__dict__
+        module.__dict__['__builtins__'] = dict(builtins.__dict__, __import__=robot_import)
         captures = []
         job = Mock(returncode=0)
         job.communicate.return_value = (b'Controller finished.\n', None)
@@ -225,7 +265,7 @@ class EmbeddedLauncherTests(unittest.TestCase):
             extracted = Path(command[3]).parent
             captures.append({p.name: p.read_text(encoding='utf-8') for p in extracted.iterdir()})
             self.assertEqual(command[1:3], ['-B', '-S'])
-            self.assertEqual(command[-1], 'INSTALL')
+            self.assertEqual(command[-1], mode)
             return job
 
         original_mkdtemp = tempfile.mkdtemp
@@ -241,16 +281,28 @@ class EmbeddedLauncherTests(unittest.TestCase):
                 patch.object(tempfile, 'mkdtemp', side_effect=make_folder), \
                 patch.object(subprocess, 'Popen', side_effect=launch) as launch_mock, \
                 patch('sys.stdout', new_callable=io.StringIO) as output:
-            exec(compile(source or self.source, 'test-lab-program', 'exec'), {'__builtins__': restricted})
+            selected = (source or self.source).replace("MODE = 'INSTALL'", "MODE = '%s'" % mode, 1)
+            processed = preprocess_lab_source(selected)
+            namespace = {'__builtins__': restricted, 'time': types.SimpleNamespace(sleep=Mock())}
+            exec(compile(processed, 'test-lab-program', 'exec'), namespace)
         return captures, output.getvalue(), launch_mock, job
 
     def test_actual_generated_launcher_extracts_and_removes_its_whole_bundle(self):
         with tempfile.TemporaryDirectory() as directory:
             captures, output, launch, job = self.run_launcher(directory)
+            self.assertNotIn('ERROR:', output)
             self.assertEqual(captures, [bundle.payload_files()])
             self.assertEqual(list(Path(directory).iterdir()), [])
-            self.assertNotIn('ERROR:', output)
             launch.assert_called_once()
+
+    def test_every_mode_launches_without_optional_compression_modules(self):
+        for mode in ('INSTALL', 'STATUS', 'DISABLE', 'UNINSTALL'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                captures, output, launch, job = self.run_launcher(directory, mode=mode)
+                self.assertNotIn('ERROR:', output)
+                self.assertEqual(captures, [bundle.payload_files()])
+                self.assertEqual(list(Path(directory).iterdir()), [])
+                launch.assert_called_once()
 
     def test_corrupt_payload_is_rejected_before_writes_or_process_launch(self):
         source = self.source.replace("BUNDLE_SHA256 = '", "BUNDLE_SHA256 = 'incorrect")

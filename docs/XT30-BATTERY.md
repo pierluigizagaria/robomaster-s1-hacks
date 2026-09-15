@@ -3,8 +3,9 @@
 ## One owner-facing script
 
 [scripts/xt30_battery.py](../xt30-battery/scripts/xt30_battery.py) is generated
-from readable files under [src](../xt30-battery/src/README.md). Its compressed,
-SHA-256-checked bundle contains all seven required source files. It makes no
+from readable files under [src](../xt30-battery/src/README.md). Its uncompressed
+JSON bundle is encoded as Base64 and checked with SHA-256. It contains all seven
+required source files and needs no optional compression module. It makes no
 downloads and needs no ADB. The temporary controller runs separately from Lab;
 the installed runtime is independent of the extracted bundle.
 
@@ -91,8 +92,19 @@ Lab script: it is the management and recovery entry point.
 
 Offline checks cover protocol parsing, parameter guards and rollback,
 installation/removal failures, bundle integrity, restricted Lab builtins,
-Python 3.6 syntax and the estimator/watchdog logic. Run them using the
+Python 3.6 syntax, Lab's loop checkpoint insertion and enclosing indentation,
+and the estimator/watchdog logic. Launcher tests execute the preprocessed
+script with a mocked controller process and reject imports of `zlib`, `bz2`
+and `lzma` in all four modes. This covers the observed missing-`zlib` failure;
+it does not establish a successful installation on the robot. Run them using the
 [source instructions](../xt30-battery/src/README.md).
+
+Lab scans physical lines for loop keywords before compiling. An inline
+generator in a condition can receive a checkpoint at the wrong indentation,
+causing an `IndentationError` before the launcher runs. Keep the embedded
+file-name validation as an explicit loop. The regression check reproduces
+this failure and verifies the generated launcher's extraction and cleanup
+after preprocessing.
 
 The complete Lab install/uninstall flow still requires hardware acceptance.
 App/platform coverage and calibration under real battery loads are incomplete.

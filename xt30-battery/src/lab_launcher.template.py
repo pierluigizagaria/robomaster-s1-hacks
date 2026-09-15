@@ -31,17 +31,20 @@ def main():
     tempfile_api = load_module('tempfile')
     hash_api = load_module('hashlib')
     base64_api = load_module('base64')
-    zlib_api = load_module('zlib')
     json_api = load_module('json')
     packed = base64_api.b64decode(BUNDLE_B64)
     if hash_api.sha256(packed).hexdigest() != BUNDLE_SHA256:
         raise Exception('Embedded bundle checksum failed; copy the complete script again.')
-    files = json_api.loads(zlib_api.decompress(packed).decode('utf-8'))
+    files = json_api.loads(packed.decode('utf-8'))
     expected = ('boot.py', 'worker.py', 'telemetry.py', 'manage.py', 'lab_manage.py',
                 'controller_settings.py',
                 's1_battery_autostart.pth')
-    if not isinstance(files, dict) or len(files) != len(expected) or not all(name in files for name in expected):
+    if not isinstance(files, dict) or len(files) != len(expected):
         raise Exception('Unexpected embedded file list.')
+    # Lab adds checkpoints to loop lines; keep comprehensions out of conditions.
+    for name in expected:
+        if name not in files:
+            raise Exception('Unexpected embedded file list.')
     folder = tempfile_api.mkdtemp(prefix='s1-battery-lab-', dir='/tmp')
     written = []
     try:

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed Lab launcher compatibility: removed the unavailable `zlib` dependency
+  and an inline generator incompatible with Lab's checkpoint insertion. Added
+  regression checks for both failures. Full device acceptance remains pending.
+
 - Introduced **XT30 Battery Mod**: one Lab script for XT30 settings, internal battery
   estimation, automatic startup, status, disabling and full removal.
 - Added voltage-curve filtering and publication to the RoboMaster app's battery

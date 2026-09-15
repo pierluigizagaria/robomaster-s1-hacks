@@ -55,6 +55,13 @@ remain protected independently of the robot and this script.
    run Lab or ADB again.
 
 No other file needs to be copied to the robot and nothing is downloaded.
+
+If Lab reports `No module named 'zlib'` or an `IndentationError` near the
+embedded file-list check, replace the whole program with the current generated
+script. It uses an uncompressed bundle and explicit validation loops. These
+early launcher failures occur before it starts the installation controller.
+The complete installation still requires end-to-end verification in Lab.
+
 `INSTALL` can be run again after `DISABLE` or a fault. It stops the previous
 estimate, rechecks the controller state and requests one new background run.
 Matching installed files are reused. A different version must be removed

@@ -30,7 +30,7 @@ BUNDLE_SHA256 = '__BUNDLE_SHA256__'
 def print_output(output):
     # Lab renders each print as one console entry, flattening embedded newlines.
     for line in output.decode('utf-8', 'replace').splitlines():
-        if line.strip():
+        if line.strip() and line != 'XT30_ACTION_DONE:' + MODE:
             print(line)
 
 
@@ -73,6 +73,15 @@ def read_progress(os_api, log, offset, pending):
     parts = (pending + data).split(line_break)
     print_output(line_break.join(parts[:-1]))
     return offset + len(data), parts[-1]
+
+
+def verify_completion(os_api, log):
+    # Each run has a fresh private output file. Exit code zero alone is not
+    # proof that the controller reached the end of the requested action.
+    marker = ('XT30_ACTION_DONE:' + MODE).encode('ascii') + b''.fromhex('0a')
+    size = os_api.fstat(log.fileno()).st_size
+    if size < len(marker) or os_api.pread(log.fileno(), len(marker), size - len(marker)) != marker:
+        raise Exception('Installer completion was not confirmed. Run STATUS before retrying.')
 
 
 def remove_temporary_files(os_api, written):
@@ -144,7 +153,8 @@ def main():
                 print_output(pending)
                 pending = b''
                 if job.returncode != 0:
-                    raise Exception('Action failed; review the message above. No success is assumed.')
+                    raise Exception('Action failed (exit ' + str(job.returncode) + '). Run STATUS before retrying.')
+                verify_completion(os_api, log)
             finally:
                 stopped = stop_job(job, process_api)
                 offset, pending = read_progress(os_api, log, offset, pending)
@@ -163,3 +173,5 @@ try:
     main()
 except Exception as exc:
     print('ERROR: ' + str(exc))
+    # Let the stock Lab framework report failure instead of Execution Complete.
+    raise

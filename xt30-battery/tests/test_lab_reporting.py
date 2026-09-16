@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import time
 import types
@@ -89,6 +90,7 @@ class ReportingTests(unittest.TestCase):
 class LauncherCleanupTests(unittest.TestCase):
     def setUp(self):
         self.namespace = launcher_functions()
+        self.namespace['MODE'] = 'INSTALL'
 
     def test_dji_escape_decoding_reproduces_reported_string_syntax_error(self):
         source = "def broken():\n    return b'\\n'\n"
@@ -187,6 +189,58 @@ class LauncherCleanupTests(unittest.TestCase):
         self.namespace['remove_temporary_files'](os_api, written)
         self.assertEqual([call.args[0] for call in os_api.unlink.call_args_list], ['three', 'two', 'one'])
         self.assertEqual(written, [])
+
+
+class CompletionTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = fixture_module.EmbeddedLauncherTests()
+        self.fixture.setUp()
+
+    def test_zero_exit_without_confirmation_is_a_lab_failure(self):
+        for data in (b'', b'Battery checks: OFF\n', b'XT30_ACTION_DONE:UNINSTALL\n',
+                     b'XT30_ACTION_DONE:INSTALL', b'XT30_ACTION_DONE:INSTALL\nERROR\n'):
+            with self.subTest(output=data), tempfile.TemporaryDirectory() as directory:
+                _, output, _, _ = self.fixture.run_launcher(
+                    directory, child_output=data, expected_error='completion was not confirmed')
+                self.assertIn('ERROR: Installer completion was not confirmed', output)
+                self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_nonzero_exit_still_fails_with_a_completion_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, output, _, _ = self.fixture.run_launcher(
+                directory, returncode=1, expected_error='exit 1')
+        self.assertIn('ERROR: Action failed (exit 1)', output)
+
+    def test_success_marker_is_private_and_adds_no_console_row(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, output, _, _ = self.fixture.run_launcher(directory)
+        self.assertIn('Controller finished.', output)
+        self.assertNotIn('XT30_ACTION_DONE', output)
+        self.assertEqual(len(output.splitlines()), 2)
+
+    def test_controller_confirms_only_after_main_returns(self):
+        tree = ast.parse((ROOT / 'src/lab_manage.py').read_text())
+        entry = tree.body[-1]
+        for fault in (None, RuntimeError('incomplete restoration')):
+            output = io.StringIO()
+            def action(mode):
+                self.assertEqual(mode, 'INSTALL')
+                self.assertNotIn('XT30_ACTION_DONE', output.getvalue())
+                if fault:
+                    raise fault
+            namespace = {'__name__': '__main__', '__doc__': '', 'STEP': 'restoring',
+                         'main': action, 'signal': Mock(), 'sys': sys,
+                         'argparse': __import__('argparse')}
+            with self.subTest(fault=fault), patch.object(sys, 'argv', ['lab_manage.py', 'INSTALL']), \
+                    patch('sys.stdout', output):
+                if fault:
+                    with self.assertRaises(SystemExit) as error:
+                        exec(compile(ast.Module(body=[entry], type_ignores=[]), 'controller-entry', 'exec'), namespace)
+                    self.assertEqual(error.exception.code, 1)
+                    self.assertNotIn('XT30_ACTION_DONE', output.getvalue())
+                else:
+                    exec(compile(ast.Module(body=[entry], type_ignores=[]), 'controller-entry', 'exec'), namespace)
+                    self.assertEqual(output.getvalue(), 'XT30_ACTION_DONE:INSTALL\n')
 
 
 if __name__ == '__main__':

@@ -298,6 +298,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     try:
         main(args.mode)
+        # Consumed by the launcher, never displayed as a user-facing log row.
+        # Write only after the action and control-lock cleanup both succeed.
+        print('XT30_ACTION_DONE:' + args.mode, flush=True)
     except Exception as exc:
         print('ERROR while %s: %s' % (STEP, exc), flush=True)
         sys.exit(1)

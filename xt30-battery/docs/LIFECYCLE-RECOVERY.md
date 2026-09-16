@@ -3,7 +3,56 @@
 Updated 16 September 2026. Implemented and verified locally; **real-robot
 confirmation is pending**. No robot commands were issued for this investigation.
 
+Follow-up from the user at 22:32:48 on 16 September: UNINSTALL reports native
+app error reporting restored, authentication/capacity ON verified, removal
+complete and auto-start OFF, but the screenshot still shows `Running--`.
+This does **not** establish successful Lab termination; the earlier changes
+have not been confirmed to resolve that symptom. The duration is not yet
+known. There are no devices in the local ADB listing, so no live process stack
+or robot log was collected. The exact outstanding call remains unidentified.
+
+The manager prints those messages before it releases its control lock and
+exits. The launcher still has to observe that exit and remove temporary files;
+then the stock framework runs event registration, stop and controller/event
+cleanup before the stock script manager resets its running state. The screenshot
+does not distinguish these stages. Do not infer that a detached estimator is
+keeping Lab running: UNINSTALL has already reported it stopped, and this
+maintenance mode does not launch another background worker.
+
 ## Report and findings
+
+Follow-up at 22:41:18 and 22:41:36: only the INSTALL introduction appeared,
+followed by `Execution Complete`. The user confirmed two separate Run presses
+without Stop. The app's saved DSP project from 22:41:18 decodes to the exact
+complete generated script at commit `7eab199`; no truncated paste was found.
+The user then reported another run succeeded, after the earlier issue following
+UNINSTALL. This is a reported successful retry, not a diagnosis of the transient
+failure or full hardware acceptance. No robot output/stack from those runs is
+available to establish why the result rows were absent.
+
+One independent reporting defect was corrected: launcher exceptions were
+printed and swallowed, allowing Lab to report normal completion after an error.
+They now propagate to the original framework. Exit zero also requires a private
+per-action completion line, written by the child after the action and control
+lock cleanup return. Missing, partial, wrong-mode or nonfinal confirmation is an
+error. The protocol line is not displayed; normal INSTALL remains four lines.
+This does not claim to reproduce or fix the transient post-UNINSTALL issue.
+
+Timing audit: INSTALL and UNINSTALL each have an unconditional `sleep(7)` before
+their final result lines, intended to cover the native battery presence timeout
+and outgoing roster cadence. Other waits end early when their condition is met.
+The launcher 90-second action deadline and 30+2-second termination bounds apply
+to failure/recovery, not every normal execution. No fixed seven-second delay
+follows `INSTALL/UNINSTALL complete`; that tail includes child/launcher exit and
+DJI framework cleanup. The background estimator startup is detached. Timers and
+native/robot behavior were not changed in this reporting update.
+
+New verification: Windows repository suite 63 PASS; XT30 suite 41 cases,
+32 PASS and nine Linux-only skips. All 18 reporting/launcher cases also pass
+on Linux, including four new result/error regression tests. Original private
+DJI parser/framework compilation for all modes and finalizer checks pass.
+Current generated SHA-256:
+`6A1DB9DA7FB1EEF978D934F3F67642E15FAB40F84F0BB16B4BF6C06A4B6BD679`.
 
 The user reported UNINSTALL remaining in `Running--`. A later INSTALL screenshot
 showed verified battery checks and `INSTALL complete` followed by `Running--`.
@@ -101,7 +150,7 @@ motion unavailable. This is separate from a stuck Lab program. An error or
 unverified recovery retains the installation and is never reported as a
 completed uninstall.
 
-## Local verification
+## Previous revision verification (before the completion-record update)
 
 - 63 repository tests pass on Windows and Linux, including generated bundle,
   Python 3.6 syntax, Lab preprocessing, lifecycle and controller rollback.

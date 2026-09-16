@@ -250,7 +250,8 @@ class EmbeddedLauncherTests(unittest.TestCase):
             if name.endswith('.py'):
                 ast.parse(data, filename=name, feature_version=(3, 6))
 
-    def run_launcher(self, directory, source=None, failure=None, mode='INSTALL'):
+    def run_launcher(self, directory, source=None, failure=None, mode='INSTALL',
+                     child_output=None, returncode=0, expected_error=None):
         def robot_import(name, *args, **kwargs):
             if name in ('zlib', 'bz2', 'lzma'):
                 raise ModuleNotFoundError("No module named '%s'" % name)
@@ -259,8 +260,8 @@ class EmbeddedLauncherTests(unittest.TestCase):
         module = types.ModuleType('rm_define')
         module.__dict__['__builtins__'] = dict(builtins.__dict__, __import__=robot_import)
         captures = []
-        job = Mock(returncode=0)
-        job.poll.return_value = 0
+        job = Mock(returncode=returncode)
+        job.poll.return_value = returncode
         if failure:
             job.poll.side_effect = [None, None]
             job.wait.side_effect = [subprocess.TimeoutExpired('controller', 30), 0]
@@ -280,7 +281,9 @@ class EmbeddedLauncherTests(unittest.TestCase):
             captures.append({p.name: p.read_text(encoding='utf-8') for p in extracted.iterdir()})
             self.assertEqual(command[1:3], ['-B', '-S'])
             self.assertEqual(command[-1], mode)
-            os.write(kwargs['stdout'].fileno(), b'Controller finished.\n')
+            data = child_output if child_output is not None else (
+                'Controller finished.\nXT30_ACTION_DONE:' + mode + '\n').encode('ascii')
+            os.write(kwargs['stdout'].fileno(), data)
             return job
 
         original_mkdtemp = tempfile.mkdtemp
@@ -301,7 +304,11 @@ class EmbeddedLauncherTests(unittest.TestCase):
             selected = (source or self.source).replace("MODE = 'INSTALL'", "MODE = '%s'" % mode, 1)
             processed = preprocess_lab_source(selected)
             namespace = {'__builtins__': restricted, 'time': types.SimpleNamespace(sleep=Mock())}
-            exec(compile(processed, 'test-lab-program', 'exec'), namespace)
+            if expected_error is None:
+                exec(compile(processed, 'test-lab-program', 'exec'), namespace)
+            else:
+                with self.assertRaisesRegex(Exception, expected_error):
+                    exec(compile(processed, 'test-lab-program', 'exec'), namespace)
         return captures, output.getvalue(), launch_mock, job
 
     def test_actual_generated_launcher_extracts_and_removes_its_whole_bundle(self):
@@ -324,14 +331,14 @@ class EmbeddedLauncherTests(unittest.TestCase):
     def test_corrupt_payload_is_rejected_before_writes_or_process_launch(self):
         source = self.source.replace("BUNDLE_SHA256 = '", "BUNDLE_SHA256 = 'incorrect")
         with tempfile.TemporaryDirectory() as directory:
-            captures, output, launch, job = self.run_launcher(directory, source=source)
+            captures, output, launch, job = self.run_launcher(directory, source=source, expected_error='checksum failed')
             self.assertIn('checksum failed', output)
             self.assertEqual(list(Path(directory).iterdir()), [])
             launch.assert_not_called()
 
     def test_timeout_is_not_reported_as_success_and_temporary_files_are_removed(self):
         with tempfile.TemporaryDirectory() as directory:
-            captures, output, launch, job = self.run_launcher(directory, failure=True)
+            captures, output, launch, job = self.run_launcher(directory, failure=True, expected_error='Action timed out')
             self.assertIn('ERROR: Action timed out', output)
             self.assertEqual(list(Path(directory).iterdir()), [])
             job.terminate.assert_called_once()

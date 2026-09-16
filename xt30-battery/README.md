@@ -89,8 +89,11 @@ the estimate and warning filter are actually running. Routine developer JSON,
 paths and parameter numbers are omitted from Lab output; failures still abort
 the action and report an error.
 
-Installation includes a seven-second settling period plus file and parameter
-checks. A `Please wait` message appears immediately and results follow as each
+INSTALL and UNINSTALL each include a fixed seven-second settling period plus
+file and parameter checks. This happens before the completion message. Any
+remaining `Running` display after that message is launcher/framework cleanup;
+the 90-second action limit and 30-second recovery limit are failure deadlines,
+not normal delays. A `Please wait` message appears immediately and results follow as each
 step finishes. A successful new installation normally produces four lines:
 
 ```text
@@ -99,6 +102,12 @@ Battery checks: authentication OFF | capacity OFF (verified)
 App battery errors: authentication / missing information | Filter: starting in background
 INSTALL complete | Auto-start: ON | Battery percentage estimate: starting in background
 ```
+
+`Execution Complete` by itself does not verify installation. If only the initial
+line appears, run `STATUS` before retrying. The launcher requires an explicit
+completion record from the installer and propagates errors to Lab instead of
+ending normally after printing them. This reporting update does not require
+uninstalling an otherwise matching installation.
 
 The app error filter hides authentication errors and missing smart-battery
 information. `Starting in background` describes a startup request; `STATUS`

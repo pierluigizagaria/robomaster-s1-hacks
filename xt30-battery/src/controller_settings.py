@@ -6,13 +6,16 @@ The estimator must be stopped before using this maintenance interface.
 """
 import json
 import os
-import select
-import signal
-import subprocess
+import importlib.util
 import tempfile
 from contextlib import contextmanager
 
 import worker
+
+_spec = importlib.util.spec_from_file_location(
+    's1_process_guard', os.path.join(os.path.dirname(__file__), 'process_guard.py'))
+guard = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(guard)
 
 MB = '/system/bin/dji_mb_ctrl'
 STOCK_JSON = '/system/etc/dji.json'
@@ -71,33 +74,8 @@ def make_write_payload(before, wanted):
 
 @contextmanager
 def paused_bridge(pid, started):
-    if worker.identity(pid) != started:
-        raise RuntimeError('HDVT process changed before parameter transaction')
-    read_fd, write_fd = os.pipe()
-    child = os.fork()
-    if child == 0:
-        os.close(write_fd)
-        os.setsid()
-        for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
-            signal.signal(sig, signal.SIG_IGN)
-        try:
-            # EOF means the parent exited. The hard bound also covers a stall.
-            select.select([read_fd], [], [], 10)
-            if worker.identity(pid) == started:
-                os.kill(pid, signal.SIGCONT)
-        finally:
-            os._exit(0)
-    os.close(read_fd)
-    try:
-        os.kill(pid, signal.SIGSTOP)
+    with guard.paused_process(pid, started, 10):
         yield
-    finally:
-        try:
-            if worker.identity(pid) == started:
-                os.kill(pid, signal.SIGCONT)
-        finally:
-            os.close(write_fd)
-            os.waitpid(child, 0)
 
 
 class Session:
@@ -110,8 +88,7 @@ class Session:
         args = [MB, '-S', 'probe_svc', '-R', 'u_pc5', '-g', '3', '-t', '6',
                 '-w', '2', '-s', '3', '-q', str(self.sequence), '-c', command, payload]
         with paused_bridge(self.pid, self.started):
-            result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    timeout=5, close_fds=True)
+            result = guard.run_command(args, timeout=5)
         if result.returncode:
             raise RuntimeError('DUSS parameter transaction failed: ' + command)
         return parse_response(result.stdout)
@@ -171,16 +148,17 @@ def set_mode(mode):
         routes['probe_svc'] = ROUTE
         with open(path, 'w') as stream:
             json.dump(routes, stream)
-        subprocess.run(['/system/bin/mount', '-o', 'bind', path, STOCK_JSON],
-                       check=True, timeout=3, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        guard.run_command(['/system/bin/mount', '-o', 'bind', path, STOCK_JSON],
+                          check=True, timeout=3)
         mounted = True
         Session(pid, started).change(XT30 if mode == 'XT30' else STOCK)
         print('Controller state 7/8/9/10 = ' + ('0/0/1/0' if mode == 'XT30' else '1/1/1/0'), flush=True)
     finally:
-        if mounted:
+        # Also cover cancellation immediately after mount succeeded, before its
+        # return could be recorded. Only unmount our own bind of this temp file.
+        if mounted or (os.path.exists(path) and os.path.samefile(path, STOCK_JSON)):
             try:
-                subprocess.run(['/system/bin/umount', STOCK_JSON], check=True, timeout=3,
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                guard.run_command(['/system/bin/umount', STOCK_JSON], check=True, timeout=3)
             except Exception:
                 raise RuntimeError('temporary route could not be unmounted; reboot before retrying')
         if os.path.exists(path):

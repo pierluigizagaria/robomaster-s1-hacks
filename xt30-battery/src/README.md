@@ -8,6 +8,7 @@ copy individual source files or run a PC installer.
 | [lab_launcher.template.py](lab_launcher.template.py) | Lab entry point, checked embedded bundle, temporary extraction/cleanup |
 | [lab_manage.py](lab_manage.py) | INSTALL, STATUS, DISABLE, UNINSTALL orchestration |
 | [controller_settings.py](controller_settings.py) | Guarded persistent XT30/stock controller states |
+| [process_guard.py](process_guard.py) | Bounded command/recovery waits and independent service resume |
 | [manage.py](manage.py) | Data-only file installation, manifest, enable/disable and verified removal |
 | [boot.py](boot.py) | Exact stock-service hook, telemetry priming and bounded startup |
 | [worker.py](worker.py) | Internal voltage estimate, filters, presence and RAM restoration watchdog |
@@ -34,9 +35,26 @@ interfaces remain optional; the owner workflow is entirely in the Lab script.
 `lab_manage.py` presents compact lifecycle summaries for the whole XT30 mod.
 Routine helper stdout is suppressed only in the Lab orchestrator; standalone
 developer CLI output is retained and exceptions propagate. Controller checks
-are reported as verified only after `set_mode` returns successfully. STATUS
-explicitly leaves authentication/capacity unverified instead of reading controller
-parameters or inferring them from the installed files or warning-filter state.
+are reported as verified only after `set_mode` returns successfully. The manifest
+stores that historical readback; STATUS labels it `last verified`. An absent
+record never implies OFF. A new parameter operation invalidates the previous
+record before mutation. STATUS does not read controller parameters or infer
+them from the installed files or warning-filter state.
+
+Lab output is streamed from a regular temporary file, without waiting on pipe
+EOF from descendants. The launcher uses a 90-second action deadline, 30 seconds
+for graceful recovery and a final bounded 2-second reap. Recovery files remain
+when shutdown or native/controller restoration cannot be confirmed. The
+maintenance script replaces only the framework's exit reset helper to omit
+automatic recentering; all framework stop/exit/event cleanup remains.
+See [lifecycle evidence and limitations](../docs/LIFECYCLE-RECOVERY.md).
+
+The DJI project parser expands escaped newlines/quotes before inserting loop
+checkpoints. The launcher must survive that normalization unchanged;
+`build_lab_script.py` enforces it. Tests model both normalization and checkpoint
+insertion. The optional `tests/check_private_lab_framework.py` accepts a local
+original `script_framework.py` path and checks the exact private DSP parser,
+source transformations and finalizer without distributing vendor source.
 
 The bundle now also carries 384 bytes of **our own** native ARM code encoded
 in a Python source file. To change it, run `build_warning_hook.py --toolchain`

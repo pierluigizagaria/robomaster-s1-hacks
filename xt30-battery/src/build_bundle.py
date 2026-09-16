@@ -8,6 +8,7 @@ def payload_files():
     sources = {'boot.py': source / 'boot.py', 'manage.py': source / 'manage.py',
                'lab_manage.py': source / 'lab_manage.py',
                'controller_settings.py': source / 'controller_settings.py',
+               'process_guard.py': source / 'process_guard.py',
                's1_battery_autostart.pth': source / 's1_battery_autostart.pth',
                'worker.py': source / 'worker.py',
                'warning_filter.py': source / 'warning_filter.py',

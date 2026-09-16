@@ -22,6 +22,25 @@ BOOT_LOG = '/tmp/s1-battery-autostart.log'
 WORKER_LOG = '/tmp/s1-battery-estimator.log'
 CONTROL_LOCK = '/tmp/s1-battery-install.lock'
 WORKER_LOCK = '/tmp/s1-battery-estimator.lock'
+STEP = 'checking installation'
+
+
+def record_checks(manifest, values=None):
+    """A historical readback, never inferred from install files or filter state."""
+    if manifest is None:
+        return
+    manifest = dict(manifest)
+    manifest.pop('battery_checks', None)
+    if values is not None:
+        manifest['battery_checks'] = values
+    path = manage.ROOT + '/manifest.json'
+    staging = path + '.next'
+    manage.write_new(staging, json.dumps(manifest, sort_keys=True).encode('ascii'))
+    try:
+        os.replace(staging, path)
+    finally:
+        if os.path.exists(staging):
+            os.unlink(staging)
 
 
 def quiet_call(callback, *args, **kwargs):
@@ -119,15 +138,19 @@ def stop_manual_worker():
 def show_status():
     manifest = installation()
     if manifest is None:
-        print('XT30 mod: Not installed | Auth/capacity checks: not read')
+        print('XT30 mod: Not installed | Auto-start: OFF')
         if worker_locked():
             print('A temporary estimator is still running; use DISABLE or UNINSTALL to stop it.')
         return
     claim = manage.process_claim()
-    # Installation and worker state do not prove the current controller flags.
-    # Reading them here would pause HDVT; STATUS remains non-invasive.
-    print('XT30 mod: installed | Auto-start: %s | Auth/capacity checks: not read' % (
-        'on' if os.path.isfile(manage.ROOT + '/enabled') else 'off'))
+    checks = manifest.get('battery_checks')
+    checked = ''
+    if checks in ({'authentication': 0, 'capacity': 0}, {'authentication': 1, 'capacity': 1}):
+        checked = ' | Battery checks (auth/capacity): %s (last verified)' % ('ON' if checks['authentication'] else 'OFF')
+    print('XT30 mod: installed | Auto-start: %s%s' % (
+        'ON' if os.path.isfile(manage.ROOT + '/enabled') else 'OFF', checked))
+    if not checked:
+        print('Battery checks: run INSTALL to verify authentication and capacity settings.')
     rows = events()
     active = [row for row in rows if row.get('event') == 'active']
     if claim and active and active[-1].get('worker_pid') == claim['pid'] and \
@@ -154,8 +177,8 @@ def show_status():
             probe = warning_module.WarningFilter(readonly=True)
             try:
                 state = probe.status()
-                print('Battery authentication errors / missing battery information: %s' % (
-                    'filtered' if state['filter_active'] else 'unfiltered'))
+                print('App battery errors: authentication / missing information %s' % (
+                    'hidden' if state['filter_active'] else 'not hidden'))
             finally:
                 probe.close()
         except (OSError, RuntimeError) as exc:
@@ -180,10 +203,11 @@ def start_installed():
         subprocess.Popen([PYTHON, '-S', manage.ROOT + '/boot.py', '--run'],
                          stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                          close_fds=True, start_new_session=True)
-    return 'startup requested'
+    return 'starting'
 
 
 def perform(mode):
+    global STEP
     if mode not in ('INSTALL', 'STATUS', 'DISABLE', 'UNINSTALL'):
         raise RuntimeError('MODE must be INSTALL, STATUS, DISABLE, or UNINSTALL')
     if os.geteuid() != 0:
@@ -193,6 +217,7 @@ def perform(mode):
         return
     manifest = installation()
     if mode == 'INSTALL':
+        STEP = 'preparing installation'
         manage.verify_stock()
         if manifest is not None:
             expected = {name: manage.digest(data) for name, data in manage.source_files().items()}
@@ -200,17 +225,27 @@ def perform(mode):
                 raise RuntimeError('a different version is installed; run UNINSTALL before INSTALL')
         else:
             quiet_call(manage.main, 'install', True)
+            manifest = installation()
+        STEP = 'stopping the previous battery estimate and app error filter'
         stop_manual_worker()
         quiet_call(manage.main, 'disable', True)
         time.sleep(7)
+        if worker_locked() or manage.process_claim():
+            raise RuntimeError('previous battery background process is still stopping; installation retained')
+        STEP = 'disabling and verifying battery checks'
+        record_checks(manifest)
         quiet_call(controller_settings.set_mode, 'XT30')
+        record_checks(manifest, {'authentication': 0, 'capacity': 0})
         print('Battery checks: authentication OFF | capacity OFF (verified)', flush=True)
+        STEP = 'enabling automatic startup'
         quiet_call(manage.main, 'enable', True)
         startup = start_installed()
-        print('INSTALL complete | Auto-start: ON | Background estimate/filter: ' + startup)
+        print('App battery errors: authentication / missing information | Filter: %s in background' % startup, flush=True)
+        print('INSTALL complete | Auto-start: ON | Battery percentage estimate: %s in background' % startup, flush=True)
         return
     if manifest is not None and mode == 'UNINSTALL':
         quiet_call(manage.main, 'uninstall', False)  # Preflight unknown files before changes.
+    STEP = 'stopping the battery estimate and restoring app battery errors'
     stop_manual_worker()
     if manifest is None:
         # Also verify a legacy temporary run when no persistent install exists.
@@ -223,17 +258,24 @@ def perform(mode):
     else:
         quiet_call(manage.main, 'disable', True)
     time.sleep(7)  # Native presence timeout plus outgoing roster cadence.
+    if worker_locked() or manage.process_claim():
+        raise RuntimeError('battery background process is still stopping; installation retained')
+    print('Battery percentage estimate: OFF | App battery errors: normal reporting restored', flush=True)
     if mode == 'UNINSTALL':
+        STEP = 'restoring and verifying original battery checks'
         manage.verify_stock()
+        record_checks(manifest)
         quiet_call(controller_settings.set_mode, 'STOCK')
+        record_checks(manifest, {'authentication': 1, 'capacity': 1})
         print('Battery checks: authentication ON | capacity ON (verified)', flush=True)
         if manifest is not None:
+            STEP = 'removing the installation'
             quiet_call(manage.main, 'uninstall', True)
     if mode == 'DISABLE':
-        print('DISABLE complete | Estimate/filter: stopped | Auto-start: OFF')
+        print('DISABLE complete | Auto-start: OFF')
         print('Battery checks: unchanged (UNINSTALL restores stock checks)')
     else:
-        print('UNINSTALL complete | Estimate/filter removed | Stock battery required')
+        print('UNINSTALL complete | Auto-start: OFF | Original DJI battery required')
         print('Next: restart once to clear temporary telemetry settings and logs.')
 
 
@@ -243,7 +285,19 @@ def main(mode):
 
 
 if __name__ == '__main__':
+    def interrupted(signum, frame):
+        # One interruption enters rollback/finally; subsequent TERM must not
+        # interrupt that recovery a second time.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+        raise RuntimeError('action cancelled; recovery requested')
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGHUP, interrupted)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=('INSTALL', 'STATUS', 'DISABLE', 'UNINSTALL'))
     args = parser.parse_args()
-    main(args.mode)
+    try:
+        main(args.mode)
+    except Exception as exc:
+        print('ERROR while %s: %s' % (STEP, exc), flush=True)
+        sys.exit(1)

@@ -48,6 +48,8 @@ def verify_installation():
     warning_names = ('warning_filter.py', 'warning_hook_blob.py')
     if any(name in manifest['files'] for name in warning_names):
         expected.update({ROOT + '/' + name: manifest['files'][name] for name in warning_names})
+    if 'process_guard.py' in manifest['files']:
+        expected[ROOT + '/process_guard.py'] = manifest['files']['process_guard.py']
     expected.update(manifest['stock_files'])
     for path, digest in expected.items():
         if os.path.islink(path):
@@ -215,6 +217,11 @@ def run(duration=86400, startup_delay=3, ready_timeout=300):
 if __name__ == 's1_battery_boot_hook':
     launch_from_site()
 elif __name__ == '__main__':
+    import signal
+    def interrupted(signum, frame):
+        raise SystemExit('startup cancelled')
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGHUP, interrupted)
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run', action='store_true')

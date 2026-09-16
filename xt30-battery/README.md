@@ -89,9 +89,21 @@ the estimate and warning filter are actually running. Routine developer JSON,
 paths and parameter numbers are omitted from Lab output; failures still abort
 the action and report an error.
 
-Installation includes a fixed seven-second wait plus file and parameter checks.
-Lab receives the result lines when the action finishes; the estimate starts
-separately in the background, without countdown or wait prompts. The small
+Installation includes a seven-second settling period plus file and parameter
+checks. A `Please wait` message appears immediately and results follow as each
+step finishes. A successful new installation normally produces four lines:
+
+```text
+XT30 Battery Mod: INSTALL | Please wait: configuring battery checks and app battery errors...
+Battery checks: authentication OFF | capacity OFF (verified)
+App battery errors: authentication / missing information | Filter: starting in background
+INSTALL complete | Auto-start: ON | Battery percentage estimate: starting in background
+```
+
+The app error filter hides authentication errors and missing smart-battery
+information. `Starting in background` describes a startup request; `STATUS`
+confirms whether the filter and percentage estimate actually became active.
+The small
 motion-controller LED blinking yellow means
 an autonomous program is running; blinking blue means normal operation, according
 to the [DJI manual, page 15](https://dl.djicdn.com/downloads/robomaster-s1/20191122/RoboMaster_S1_User_Manual_v1.6_EN.pdf).
@@ -102,6 +114,13 @@ embedded file-list check, replace the whole program with the current generated
 script. It uses an uncompressed bundle and explicit validation loops. These
 early launcher failures occur before it starts the installation controller.
 The complete installation still requires end-to-end verification in Lab.
+
+If Lab reports `EOL while scanning string literal` at the progress-output line,
+replace the whole program with this corrected script. DJI's project parser
+expands escaped newlines even inside Python string literals; this launcher
+constructs the line separator without those escapes. The build now rejects
+launcher text that the DJI parser would rewrite. This syntax error occurs
+before the installation controller starts.
 
 `INSTALL` can be run again after `DISABLE` or a fault. It stops the previous
 estimate, rechecks the controller state and requests one new background run.
@@ -126,9 +145,11 @@ Change only `MODE` and run the same complete script:
 
 `STATUS` normally prints three compact lines: XT30 installation and auto-start;
 estimated charge, voltage and estimator state; battery authentication / missing information warning filtering.
-The first line explicitly says `Auth/capacity checks: not read`: STATUS does not
-pause the controller to reread those parameters, and neither installation nor
-an active warning filter proves their current values. INSTALL and UNINSTALL
+The first line shows `Battery checks (auth/capacity): OFF (last verified)` when
+INSTALL recorded a successful readback. This is the last verified setting,
+not a fresh controller reading: STATUS does not pause the controller. Older
+installations without that record show an instruction to verify the settings
+instead of inventing OFF from the presence of files. INSTALL and UNINSTALL
 report verified checks after their own parameter operation; DISABLE reports
 that the checks are unchanged and directs users to UNINSTALL for stock restoration.
 Extra diagnostic details appear only when the estimator is stopped or a check fails. The
@@ -152,6 +173,13 @@ Removal checks the native battery readers are restored and verifies the stock
 controller state before deleting recovery files. If a check fails, the script
 reports an error and retains the installed files, normally with automatic
 startup disabled. Do not treat an error message as a completed reversal.
+
+The launcher and recovery processes now use bounded waits, including after a
+timeout. This maintenance program also omits Lab's automatic **exit** gimbal
+recenter task; the normal stop and cleanup calls remain. Startup initialization
+is unchanged. These changes address software paths that could delay or hang
+completion; the reported `Running--` problem still needs confirmation on the
+real robot. See the [lifecycle investigation](docs/LIFECYCLE-RECOVERY.md).
 
 ## What the estimate means
 

@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import types
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -21,12 +22,14 @@ APP = Path(__file__).resolve().parents[1] / 'xt30-battery'
 
 
 def preprocess_lab_source(source):
-    """Model Lab's textual loop checkpoints and enclosing framework block.
+    """Model DSP escape decoding, Lab checkpoints and the framework block.
 
     Lab locates loop keywords in each physical line, without parsing Python.
     A generator inside an if condition therefore gets a checkpoint indented
     relative to its inline 'for', breaking otherwise valid Python.
     """
+    # DSPXMLParser normalizes these escapes before inserting loop checkpoints.
+    source = source.replace('\\n', '\n').replace('\\"', '"')
     lines = []
     for line in source.splitlines():
         lines.append(line)
@@ -257,15 +260,27 @@ class EmbeddedLauncherTests(unittest.TestCase):
         module.__dict__['__builtins__'] = dict(builtins.__dict__, __import__=robot_import)
         captures = []
         job = Mock(returncode=0)
-        job.communicate.return_value = (b'Controller finished.\n', None)
+        job.poll.return_value = 0
         if failure:
-            job.communicate.side_effect = [subprocess.TimeoutExpired('controller', 90), (b'timed out', None)]
+            job.poll.side_effect = [None, None]
+            job.wait.side_effect = [subprocess.TimeoutExpired('controller', 30), 0]
+        clock = Mock(side_effect=[0, 91])
+
+        def pread(fd, size, offset):
+            # Windows fixture for Linux os.pread; preserve the writer's offset.
+            previous = os.lseek(fd, 0, os.SEEK_CUR)
+            try:
+                os.lseek(fd, offset, os.SEEK_SET)
+                return os.read(fd, size)
+            finally:
+                os.lseek(fd, previous, os.SEEK_SET)
 
         def launch(command, **kwargs):
             extracted = Path(command[3]).parent
             captures.append({p.name: p.read_text(encoding='utf-8') for p in extracted.iterdir()})
             self.assertEqual(command[1:3], ['-B', '-S'])
             self.assertEqual(command[-1], mode)
+            os.write(kwargs['stdout'].fileno(), b'Controller finished.\n')
             return job
 
         original_mkdtemp = tempfile.mkdtemp
@@ -280,6 +295,8 @@ class EmbeddedLauncherTests(unittest.TestCase):
         with patch.dict(sys.modules, {'rm_define': module}), \
                 patch.object(tempfile, 'mkdtemp', side_effect=make_folder), \
                 patch.object(subprocess, 'Popen', side_effect=launch) as launch_mock, \
+                patch.object(os, 'pread', side_effect=pread, create=True), \
+                patch.object(time, 'monotonic', clock), \
                 patch('sys.stdout', new_callable=io.StringIO) as output:
             selected = (source or self.source).replace("MODE = 'INSTALL'", "MODE = '%s'" % mode, 1)
             processed = preprocess_lab_source(selected)
@@ -317,7 +334,10 @@ class EmbeddedLauncherTests(unittest.TestCase):
             captures, output, launch, job = self.run_launcher(directory, failure=True)
             self.assertIn('ERROR: Action timed out', output)
             self.assertEqual(list(Path(directory).iterdir()), [])
+            job.terminate.assert_called_once()
             job.kill.assert_called_once()
+            self.assertEqual([c.kwargs['timeout'] for c in job.wait.call_args_list], [30, 2])
+            job.communicate.assert_not_called()
 
 
 if __name__ == '__main__':

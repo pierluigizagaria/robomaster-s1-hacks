@@ -74,26 +74,25 @@ class ControllerTests(unittest.TestCase):
             finally:
                 resumed.append((pid, started))
         with patch.object(settings, 'paused_bridge', pause), \
-                patch.object(settings.subprocess, 'run', side_effect=TimeoutError('deadline')):
+                patch.object(settings.guard, 'run_command', side_effect=TimeoutError('deadline')):
             with self.assertRaises(TimeoutError):
                 settings.Session(100, 'start').transaction('e2', settings.READ_PAYLOAD)
         self.assertEqual(resumed, [(100, 'start')])
 
-    def test_parameter_session_parent_resumes_and_waits_after_exception(self):
-        with patch.object(settings.worker, 'identity', return_value='start'), \
-                patch.object(settings.os, 'pipe', return_value=(10, 11)), \
-                patch.object(settings.os, 'fork', return_value=123, create=True), \
-                patch.object(settings.os, 'close') as close, \
-                patch.object(settings.os, 'kill') as kill, \
-                patch.object(settings.os, 'waitpid', create=True) as wait, \
-                patch.object(settings.signal, 'SIGSTOP', 19, create=True), \
-                patch.object(settings.signal, 'SIGCONT', 18, create=True):
+    def test_parameter_session_uses_bounded_rescue_and_unwinds_after_exception(self):
+        transitions = []
+        @contextmanager
+        def pause(pid, started, timeout):
+            transitions.append(('pause', pid, started, timeout))
+            try:
+                yield
+            finally:
+                transitions.append(('resume', pid))
+        with patch.object(settings.guard, 'paused_process', pause):
             with self.assertRaisesRegex(RuntimeError, 'transaction error'):
                 with settings.paused_bridge(100, 'start'):
                     raise RuntimeError('transaction error')
-        self.assertEqual([call.args for call in kill.call_args_list], [(100, 19), (100, 18)])
-        wait.assert_called_once_with(123, 0)
-        self.assertEqual([call.args[0] for call in close.call_args_list], [10, 11])
+        self.assertEqual(transitions, [('pause', 100, 'start', 10), ('resume', 100)])
 
 
 if __name__ == '__main__':

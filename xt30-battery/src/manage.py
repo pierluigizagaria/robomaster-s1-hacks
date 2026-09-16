@@ -42,8 +42,10 @@ def source_files():
     folder = os.path.dirname(os.path.abspath(__file__))
     result = {name: read(folder + '/' + name)
               for name in ('boot.py', 'worker.py', 'telemetry.py', 'warning_filter.py',
-                           'warning_hook_blob.py', 's1_battery_autostart.pth')}
-    for name in ('boot.py', 'worker.py', 'telemetry.py', 'warning_filter.py', 'warning_hook_blob.py'):
+                           'warning_hook_blob.py', 'process_guard.py', 's1_battery_autostart.pth')}
+    for name in result:
+        if not name.endswith('.py'):
+            continue
         compile(result[name], name, 'exec')
     expected_hook = ("import builtins; exec(compile(builtins.open('/data/s1-battery-estimator/boot.py', "
                      "'rb').read(), 's1_battery_boot_hook', 'exec'), {'__name__': 's1_battery_boot_hook'})")
@@ -61,6 +63,8 @@ def installed_manifest():
     if set(manifest.get('files', {})) not in (
             {'boot.py', 'worker.py', 's1_battery_autostart.pth'},
             {'boot.py', 'worker.py', 'telemetry.py', 's1_battery_autostart.pth'},
+            {'boot.py', 'worker.py', 'telemetry.py', 'warning_filter.py',
+             'warning_hook_blob.py', 'process_guard.py', 's1_battery_autostart.pth'},
             {'boot.py', 'worker.py', 'telemetry.py', 'warning_filter.py',
              'warning_hook_blob.py', 's1_battery_autostart.pth'}):
         raise RuntimeError('unexpected managed file list')
@@ -127,9 +131,11 @@ def disable():
 
 def restore_warning_filter():
     """After stopping our worker, recover even a hook left by a killed watchdog."""
-    path = ROOT + '/warning_filter.py'
-    if not os.path.isfile(path):
+    if not os.path.isfile(ROOT + '/warning_filter.py'):
         return  # Legacy installation predates the warning hook.
+    # Use this release's bounded recovery, including for an older installation.
+    # Native identity, blob, pointer and lease checks still apply independently.
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'warning_filter.py')
     import importlib.util
     spec = importlib.util.spec_from_file_location('s1_warning_recovery', path)
     module = importlib.util.module_from_spec(spec)
@@ -152,7 +158,16 @@ def verify_native_references(recover_warnings=False):
     """Do not remove recovery files before an independent read-only check."""
     import importlib.util
     import sys
+    import fcntl
     sys.dont_write_bytecode = True
+    lock_fd = os.open('/tmp/s1-battery-estimator.lock', os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError('restoration still running; installation retained')
+    finally:
+        os.close(lock_fd)
     if recover_warnings:
         restore_warning_filter()
     spec = importlib.util.spec_from_file_location('s1_installed_worker', ROOT + '/worker.py')
@@ -220,7 +235,7 @@ def main(action, execute=False):
         created = []
         try:
             for name in ('boot.py', 'worker.py', 'telemetry.py', 'warning_filter.py',
-                         'warning_hook_blob.py', 'manifest.json'):
+                         'warning_hook_blob.py', 'process_guard.py', 'manifest.json'):
                 data = (json.dumps(manifest, sort_keys=True).encode('ascii')
                         if name == 'manifest.json' else files[name])
                 write_new(ROOT + '/' + name, data)

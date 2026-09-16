@@ -8,8 +8,6 @@ from contextlib import contextmanager
 import hashlib
 import importlib.util
 import os
-import select
-import signal
 import struct
 import time
 
@@ -19,6 +17,11 @@ PAD = 0x574A4
 PAD_END = 0x576E8
 GOT = 0x58D60
 MAGIC = b'S1WARN02'
+
+_spec = importlib.util.spec_from_file_location(
+    's1_process_guard', os.path.join(os.path.dirname(__file__), 'process_guard.py'))
+guard = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(guard)
 
 
 def native():
@@ -78,53 +81,8 @@ def symbol_value(blob, wanted):
 @contextmanager
 def paused(pid, started):
     """Briefly stop all service threads; independent rescue resumes after death/stall."""
-    if identity(pid) != started:
-        raise RuntimeError('system service identity changed')
-    with open('/proc/%d/status' % pid) as stream:
-        status = stream.read()
-    if '\nState:\tT' in status or '\nState:\tt' in status:
-        raise RuntimeError('system service was already stopped')
-    rd, wr = os.pipe()
-    child = os.fork()
-    if child == 0:
-        os.close(wr)
-        for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
-            signal.signal(sig, signal.SIG_IGN)
-        try:
-            select.select([rd], [], [], 1)
-            if identity(pid) == started:
-                os.kill(pid, signal.SIGCONT)
-        finally:
-            os._exit(0)
-    os.close(rd)
-    try:
-        os.kill(pid, signal.SIGSTOP)
-        deadline = time.monotonic() + 0.3
-        while True:
-            tasks = os.listdir('/proc/%d/task' % pid)
-            stopped = True
-            for tid in tasks:
-                try:
-                    with open('/proc/%d/task/%s/stat' % (pid, tid)) as stream:
-                        state = stream.read().rsplit(')', 1)[1].split()[0]
-                    stopped = stopped and state in ('T', 't')
-                except FileNotFoundError:
-                    stopped = False
-            if stopped and tasks == os.listdir('/proc/%d/task' % pid):
-                break
-            if time.monotonic() >= deadline:
-                raise RuntimeError('could not quiesce system threads')
-            time.sleep(0.005)
-        if identity(pid) != started:
-            raise RuntimeError('system service changed while pausing')
+    with guard.paused_process(pid, started, 1):
         yield
-    finally:
-        try:
-            if identity(pid) == started:
-                os.kill(pid, signal.SIGCONT)
-        finally:
-            os.close(wr)
-            os.waitpid(child, 0)
 
 
 class WarningFilter:

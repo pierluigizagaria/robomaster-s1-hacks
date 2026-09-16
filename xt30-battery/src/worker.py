@@ -10,6 +10,7 @@ This changes telemetry only; it is not a low-battery motion-stop mechanism.
 import argparse
 import collections
 import hashlib
+import importlib.util
 import json
 import os
 import select
@@ -19,6 +20,11 @@ import sys
 import time
 
 sys.dont_write_bytecode = True
+
+_spec = importlib.util.spec_from_file_location(
+    's1_process_guard', os.path.join(os.path.dirname(__file__), 'process_guard.py'))
+guard = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(guard)
 
 
 EXE = '/system/bin/dji_hdvt_uav'
@@ -494,6 +500,8 @@ def run(args):
         estimate = Estimate()
         estimate.sample((ordered[3] + ordered[4]) // 2, time.monotonic())
         read_end, heartbeat = os.pipe()
+        # A stalled watchdog must not block this process on a full heartbeat pipe.
+        os.set_blocking(heartbeat, False)
         ready_read, ready_write = os.pipe()
         child = os.fork()
         if child == 0:
@@ -545,9 +553,15 @@ def run(args):
                 pass
             os.close(heartbeat)
         if child:
-            _, status = os.waitpid(child, 0)
-            if status:
-                emit('watchdog_failed', status=status)
+            try:
+                status = guard.wait_child(child, 5)
+                if status:
+                    emit('watchdog_failed', status=status)
+                    cleanup_failed = True
+            except RuntimeError as exc:
+                # Keep the independent restorer alive. Its inherited lock keeps
+                # uninstall from deleting files before recovery really finishes.
+                emit('watchdog_wait_failed', error=str(exc))
                 cleanup_failed = True
         if fd is not None:
             os.close(fd)

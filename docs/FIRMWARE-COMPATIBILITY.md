@@ -1,6 +1,6 @@
 # Compatibility matrix
 
-Last updated: **15 September 2026**
+Last updated: **16 September 2026**
 
 ## XT30 Battery Mod
 
@@ -21,10 +21,21 @@ The parameter names and complete four-value controller state are checked at
 runtime. Matching a package version or a controller version alone does not
 bypass the executable and memory-layout checks.
 
+The integrated #5/#9 filter additionally requires the exact `dji_sys`
+`duss_event_send` import at RVA `58D60`, zero executable gap
+`574A4..576E8`, a uniquely resolved ELF32 native export, and matching
+private process mappings. It refuses unexpected code or pointer ownership.
+Its own 384-byte ARM payload is bundled in the single Lab script; no
+native download or compiler is required on the robot. It changes only
+the app-bound copy of `3F/12` for chassis codes `C205` and `C209`.
+
 ### Release limitations
 
 - The combined Lab installer and full stock-restoration/removal flow need an
-  end-to-end hardware acceptance run.
+  end-to-end hardware acceptance run. The new warning filter has passed
+  13 offline native/runtime tests, in addition to the 63 existing tests;
+  actual kernel cache coherence, export mapping, pause/resume latency,
+  warning A/B/A, process-loss recovery and reboot remain unverified.
 - The RoboMaster app indicator uses native robot telemetry. Validate it on the
   app version and platform in use; cross-platform UI coverage is incomplete.
 - Motion behavior with the maintained roll-over-preserving state, real battery

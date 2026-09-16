@@ -19,6 +19,19 @@ The complete pack needs a suitable balancing arrangement. A normal total pack
 voltage can hide one cell below its safe limit and another above it. The robot
 reads only pack voltage and cannot detect that condition.
 
+## Tested battery configuration
+
+The battery configuration tested for this project is a **3S1P pack of Samsung
+INR18650-30Q high-discharge cells** with a **3S 25A BMS with balancing**,
+connected to the RoboMaster S1 through XT30. The
+[battery hardware guide](../xt30-battery/docs/HARDWARE-SETUP.md) includes
+assembly photographs, component details and the AliExpress BMS reference.
+
+Use cells with a suitable discharge rating; capacity in mAh alone does not
+establish suitability for motor loads. The board's advertised 25A rating is
+not a 25 A rating for the assembled pack. The following requirements apply
+to this configuration and any alternative pack.
+
 ## Choose and verify the whole power system
 
 | Requirement | What must be established |

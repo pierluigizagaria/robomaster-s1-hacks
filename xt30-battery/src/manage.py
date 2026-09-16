@@ -41,8 +41,9 @@ def verify_stock():
 def source_files():
     folder = os.path.dirname(os.path.abspath(__file__))
     result = {name: read(folder + '/' + name)
-              for name in ('boot.py', 'worker.py', 'telemetry.py', 's1_battery_autostart.pth')}
-    for name in ('boot.py', 'worker.py', 'telemetry.py'):
+              for name in ('boot.py', 'worker.py', 'telemetry.py', 'warning_filter.py',
+                           'warning_hook_blob.py', 's1_battery_autostart.pth')}
+    for name in ('boot.py', 'worker.py', 'telemetry.py', 'warning_filter.py', 'warning_hook_blob.py'):
         compile(result[name], name, 'exec')
     expected_hook = ("import builtins; exec(compile(builtins.open('/data/s1-battery-estimator/boot.py', "
                      "'rb').read(), 's1_battery_boot_hook', 'exec'), {'__name__': 's1_battery_boot_hook'})")
@@ -59,7 +60,9 @@ def installed_manifest():
         raise RuntimeError('unknown installation manifest')
     if set(manifest.get('files', {})) not in (
             {'boot.py', 'worker.py', 's1_battery_autostart.pth'},
-            {'boot.py', 'worker.py', 'telemetry.py', 's1_battery_autostart.pth'}):
+            {'boot.py', 'worker.py', 'telemetry.py', 's1_battery_autostart.pth'},
+            {'boot.py', 'worker.py', 'telemetry.py', 'warning_filter.py',
+             'warning_hook_blob.py', 's1_battery_autostart.pth'}):
         raise RuntimeError('unexpected managed file list')
     for name, expected in manifest['files'].items():
         path = HOOK if name.endswith('.pth') else ROOT + '/' + name
@@ -119,14 +122,39 @@ def disable():
             time.sleep(0.1)
         if process_claim():
             raise RuntimeError('estimator did not stop; installation retained')
-    verify_native_references()
+    verify_native_references(recover_warnings=True)
 
 
-def verify_native_references():
+def restore_warning_filter():
+    """After stopping our worker, recover even a hook left by a killed watchdog."""
+    path = ROOT + '/warning_filter.py'
+    if not os.path.isfile(path):
+        return  # Legacy installation predates the warning hook.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('s1_warning_recovery', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    deadline = time.monotonic() + 7
+    while True:
+        check = module.WarningFilter()
+        try:
+            if not check.status()['filter_active']:
+                check.recover_expired()
+                return
+        finally:
+            check.close()
+        if time.monotonic() >= deadline:
+            raise RuntimeError('warning filter still active; retaining recovery files')
+        time.sleep(0.1)
+
+
+def verify_native_references(recover_warnings=False):
     """Do not remove recovery files before an independent read-only check."""
     import importlib.util
     import sys
     sys.dont_write_bytecode = True
+    if recover_warnings:
+        restore_warning_filter()
     spec = importlib.util.spec_from_file_location('s1_installed_worker', ROOT + '/worker.py')
     worker = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(worker)
@@ -146,7 +174,17 @@ def verify_native_references():
                     raise RuntimeError('HDVT restarted during restoration check')
             finally:
                 os.close(memory_fd)
-            print('Native battery reader references independently verified restored.')
+            warning_path = ROOT + '/warning_filter.py'
+            if os.path.isfile(warning_path):
+                warning_spec = importlib.util.spec_from_file_location('s1_installed_warning', warning_path)
+                warning = importlib.util.module_from_spec(warning_spec)
+                warning_spec.loader.exec_module(warning)
+                check = warning.WarningFilter(readonly=True)
+                try:
+                    check.verify_restored()
+                finally:
+                    check.close()
+            print('Native battery readers and installed warning filter independently verified restored.')
             return
         except (OSError, RuntimeError):
             if time.monotonic() >= deadline:
@@ -181,7 +219,8 @@ def main(action, execute=False):
                     'files': {name: digest(data) for name, data in files.items()}}
         created = []
         try:
-            for name in ('boot.py', 'worker.py', 'telemetry.py', 'manifest.json'):
+            for name in ('boot.py', 'worker.py', 'telemetry.py', 'warning_filter.py',
+                         'warning_hook_blob.py', 'manifest.json'):
                 data = (json.dumps(manifest, sort_keys=True).encode('ascii')
                         if name == 'manifest.json' else files[name])
                 write_new(ROOT + '/' + name, data)

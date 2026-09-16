@@ -1,6 +1,10 @@
 # RoboMaster S1 XT30 Battery Mod - complete installation and reversal from Lab
 # Paste this entire generated file into one Lab Python program.
 # INSTALL sets guarded XT30 parameters and installs the automatic estimate.
+# It also hides missing battery information and battery authentication errors in the app.
+# Electrical warnings remain enabled; DISABLE/UNINSTALL restore native reporting.
+# Warning filter: offline-tested; real-robot acceptance is still pending.
+# Updating an older installation: use this same file with UNINSTALL, then INSTALL.
 # STATUS shows installation/runtime state. DISABLE stops it and future startup.
 # UNINSTALL restores stock battery checks and removes the installed estimate.
 # No ADB, PC-side commands, downloads, or firmware flash are required.
@@ -23,6 +27,13 @@ BUNDLE_B64 = '__BUNDLE_B64__'
 BUNDLE_SHA256 = '__BUNDLE_SHA256__'
 
 
+def print_output(output):
+    # Lab renders each print as one console entry, flattening embedded newlines.
+    for line in output.decode('utf-8', 'replace').splitlines():
+        if line.strip():
+            print(line)
+
+
 def main():
     if MODE not in ('INSTALL', 'STATUS', 'DISABLE', 'UNINSTALL'):
         raise Exception('MODE must be INSTALL, STATUS, DISABLE, or UNINSTALL.')
@@ -37,7 +48,7 @@ def main():
         raise Exception('Embedded bundle checksum failed; copy the complete script again.')
     files = json_api.loads(packed.decode('utf-8'))
     expected = ('boot.py', 'worker.py', 'telemetry.py', 'manage.py', 'lab_manage.py',
-                'controller_settings.py',
+                'controller_settings.py', 'warning_filter.py', 'warning_hook_blob.py',
                 's1_battery_autostart.pth')
     if not isinstance(files, dict) or len(files) != len(expected):
         raise Exception('Unexpected embedded file list.')
@@ -54,7 +65,8 @@ def main():
             written.append(path)
             with os_api.fdopen(fd, 'wb') as stream:
                 stream.write(files[name].encode('utf-8'))
-        print('Battery estimator: ' + MODE)
+        if MODE != 'STATUS':
+            print('XT30 Battery Mod: ' + MODE)
         job = process_api.Popen(
             ['/data/python_files/bin/python', '-B', '-S', folder + '/lab_manage.py', MODE],
             stdin=process_api.DEVNULL, stdout=process_api.PIPE, stderr=process_api.STDOUT,
@@ -64,9 +76,9 @@ def main():
         except process_api.TimeoutExpired:
             job.kill()
             output = job.communicate()[0]
-            print(output.decode('utf-8', 'replace'))
+            print_output(output)
             raise Exception('Action timed out. Run STATUS before retrying.')
-        print(output.decode('utf-8', 'replace'))
+        print_output(output)
         if job.returncode != 0:
             raise Exception('Action failed; review the message above. No success is assumed.')
     finally:

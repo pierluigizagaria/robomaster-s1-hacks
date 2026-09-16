@@ -15,7 +15,10 @@ import os
 import select
 import signal
 import struct
+import sys
 import time
+
+sys.dont_write_bytecode = True
 
 
 EXE = '/system/bin/dji_hdvt_uav'
@@ -44,6 +47,14 @@ def emit(event, **fields):
     fields['monotonic'] = time.monotonic()
     data = (json.dumps(fields, sort_keys=True) + '\n').encode('ascii')
     os.write(1, data)
+
+
+def emit_cleanup(event, **fields):
+    # A full/closed log must not interrupt restoration of another native hook.
+    try:
+        emit(event, **fields)
+    except OSError:
+        pass
 
 
 def percent_from_mv(pack_mv):
@@ -335,17 +346,25 @@ class BatteryPresence:
             self.fd = None
 
 
-def watchdog(memory, pipe_read, ready_write, pid, started, record, percent, battery_presence=False):
+def watchdog(memory, pipe_read, ready_write, pid, started, record, percent,
+             battery_presence=False, battery_warnings=False):
     for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
         signal.signal(sig, signal.SIG_IGN)
     status = 0
     reason = 'parent_closed_pipe'
     presence = None
+    warnings = None
     try:
         # The watchdog is the only writer. A stalled parent cannot reinstall
         # a redirection after the watchdog has restored it and exited.
         if battery_presence:
             presence = BatteryPresence()
+        if battery_warnings:
+            from warning_filter import WarningFilter
+            warnings = WarningFilter()
+            warnings.install()
+            emit('warnings_active', suppressed=['0300C205', '0300C209'],
+                 electrical_alarms_preserved=True, native_lease_seconds=3)
         memory.install(record, percent)
         os.write(ready_write, b'R')
         os.close(ready_write)
@@ -379,35 +398,57 @@ def watchdog(memory, pipe_read, ready_write, pid, started, record, percent, batt
                 # Read the incoming cache directly, not an old queued parent
                 # message or the filtered shadow value, before any status pulse.
                 presence.update(memory.read(CACHE, 10), time.monotonic())
+            if warnings is not None:
+                warnings.update()
     except BaseException as exc:
         reason = 'watchdog_error'
         emit('watchdog_error', error=str(exc))
         status = 1
     finally:
         if presence is not None:
-            presence.close()
-            emit('presence_stopped', reports_sent=presence.sent)
+            try:
+                presence.close()
+                emit_cleanup('presence_stopped', reports_sent=presence.sent)
+            except BaseException as exc:
+                emit_cleanup('presence_close_error', error=str(exc))
+                status = 1
+        if warnings is not None:
+            try:
+                warnings.restore()
+                warnings.verify_restored()
+                emit_cleanup('warnings_restored', system_pid=warnings.pid)
+            except BaseException as exc:
+                emit_cleanup('warnings_restore_error', error=str(exc))
+                status = 1
+            finally:
+                try:
+                    warnings.close()
+                except BaseException as exc:
+                    emit_cleanup('warnings_close_error', error=str(exc))
+                    status = 1
         try:
             if identity(pid) == started:
                 memory.restore()
-                emit('restored', reason=reason, hdvt_pid=pid)
+                emit_cleanup('restored', reason=reason, hdvt_pid=pid)
             else:
-                emit('process_changed', hdvt_pid=pid)
+                emit_cleanup('process_changed', hdvt_pid=pid)
         except FileNotFoundError:
-            emit('process_exited', hdvt_pid=pid)
+            emit_cleanup('process_exited', hdvt_pid=pid)
         except BaseException as exc:
-            emit('restore_error', error=str(exc))
+            emit_cleanup('restore_error', error=str(exc))
             status = 1
         os._exit(status)
 
 
 def run(args):
     battery_presence = getattr(args, 'battery_presence', False)
+    battery_warnings = getattr(args, 'battery_warnings', False)
     emit('plan', execute=args.execute, duration_seconds=args.duration,
          firmware_writes=False, controller_parameter_writes=False, motion_commands=False,
          ram_data_literal_changes=[hex(r) for r in READ_LITERALS],
          shadow_storage=hex(STORAGE), ui_estimate_only=True,
-         battery_presence=battery_presence, median_window_seconds=30)
+         battery_presence=battery_presence, battery_warnings=battery_warnings,
+         median_window_seconds=30)
     if not args.execute:
         return
     import fcntl
@@ -458,7 +499,8 @@ def run(args):
         if child == 0:
             os.close(heartbeat)
             os.close(ready_read)
-            watchdog(memory, read_end, ready_write, pid, started, record, estimate.displayed, battery_presence)
+            watchdog(memory, read_end, ready_write, pid, started, record, estimate.displayed,
+                     battery_presence, battery_warnings)
         os.close(read_end)
         os.close(ready_write)
         try:
@@ -530,6 +572,8 @@ if __name__ == '__main__':
     parser.add_argument('--execute', action='store_true')
     parser.add_argument('--battery-presence', action='store_true',
                         help='Announce the software battery using the guarded native status path')
+    parser.add_argument('--battery-warnings', action='store_true',
+                        help='Suppress only app warnings C205/C209 while the estimate is active')
     parser.add_argument('--duration', type=float, default=15)
     args = parser.parse_args()
     if not 1 <= args.duration <= 86400:

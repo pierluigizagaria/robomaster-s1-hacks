@@ -45,6 +45,9 @@ def verify_installation():
         raise RuntimeError('unknown installation manifest')
     expected = {ROOT + '/' + name: manifest['files'][name]
                 for name in ('boot.py', 'worker.py', 'telemetry.py')}
+    warning_names = ('warning_filter.py', 'warning_hook_blob.py')
+    if any(name in manifest['files'] for name in warning_names):
+        expected.update({ROOT + '/' + name: manifest['files'][name] for name in warning_names})
     expected.update(manifest['stock_files'])
     for path, digest in expected.items():
         if os.path.islink(path):
@@ -197,7 +200,8 @@ def run(duration=86400, startup_delay=3, ready_timeout=300):
                     finally:
                         os.close(log_fd)
                     os.execv(PYTHON, [PYTHON, '-S', ROOT + '/worker.py',
-                                     '--execute', '--battery-presence', '--duration', str(duration)])
+                                     '--execute', '--battery-presence', '--battery-warnings',
+                                     '--duration', str(duration)])
                 finally:
                     # Reached only on exec failure; successful exec replaces us.
                     os.close(launch_fd)

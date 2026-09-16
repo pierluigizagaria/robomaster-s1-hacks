@@ -1,17 +1,26 @@
 # XT30 Battery Mod: implementation and recovery
 
-## One owner-facing script
+The [battery hardware guide](../xt30-battery/docs/HARDWARE-SETUP.md) covers the
+tested Samsung high-discharge pack, 3S 25A balancing BMS and XT30 connection,
+with assembly photographs and component references.
+
+## One installation script
 
 [scripts/xt30_battery.py](../xt30-battery/scripts/xt30_battery.py) is generated
 from readable files under [src](../xt30-battery/src/README.md). Its uncompressed
-JSON bundle is encoded as Base64 and checked with SHA-256. It contains all seven
-required source files and needs no optional compression module. It makes no
+JSON bundle is encoded as Base64 and checked with SHA-256. It contains all nine
+required bundled files, including our own native filter encoded in Python, and needs no optional compression module. It makes no
 downloads and needs no ADB. The temporary controller runs separately from Lab;
 the installed runtime is independent of the extracted bundle.
 
 The script publishes estimated battery data through the robot's normal app
 telemetry path and announces the battery component. The RoboMaster app itself
-is not modified. Authentication warnings can remain.
+is not modified. The same script filters only chassis warnings #5
+(`0300C205`, battery information unavailable) and #9 (`0300C209`,
+authentication failed) from the copy sent to the app. Electrical alarms
+and internal diagnostics remain intact. The filter has passed offline
+ARM emulation, but has not been validated on the robot. See
+[the native implementation](../xt30-battery/src/WARNING_FILTER.md).
 
 ## Persistent controller settings
 
@@ -58,7 +67,8 @@ flag. The worker refuses unexpected battery diagnostics instead of treating
 them as ordinary voltage samples.
 
 Installed files live under `/data/s1-battery-estimator/`:
-`boot.py`, `worker.py`, `telemetry.py`, `manifest.json`, and `enabled`.
+`boot.py`, `worker.py`, `telemetry.py`, `warning_filter.py`,
+`warning_hook_blob.py`, `manifest.json`, and `enabled`.
 The additional startup file is
 `/data/python_files/lib/python3.6/site-packages/s1_battery_autostart.pth`.
 No stock startup script is replaced.
@@ -74,18 +84,33 @@ exit, parent death or a two-second heartbeat timeout. Software presence expires
 on the native timeout after reports stop. Removing a subscription does not
 undo the promoted upstream topic frequency; reboot clears that volatile setting.
 
+The warning filter intercepts the exact supported system-service send import
+in RAM. It copies and validates app-bound diagnostic rosters, removing only
+the two selected codes. A native lease expires within three seconds without
+watchdog renewal and then passes through the original warnings. Publishing
+or restoring the import briefly pauses service threads with a separate
+one-second rescue process. The robot must be stationary for these operations.
+No firmware file is changed. Dormant code remains mapped until reboot to
+protect in-flight calls; restoring the import and clearing its lease stops
+suppression without erasing that code. DISABLE/UNINSTALL independently
+verify restoration and can recover a matching expired orphan hook.
+
+To update an older installed bundle, run the same new Lab script with
+`MODE = 'UNINSTALL'`, then `MODE = 'INSTALL'`. Reboot alone does not
+undo enabled automatic startup or persistent XT30 controller settings.
+
 ## Removal boundary
 
 The manager validates named files against its manifest, refuses symlinks and
 unexpected files, stops its owned process using PID/start-time/command checks,
-and independently checks native reader restoration. It does not recursively
+and independently checks native reader and warning-import restoration. It does not recursively
 delete unknown content. Fresh-install write or hook-publication failures roll
 back the files created by that attempt. Sudden power loss may leave a partial
 install, which is refused rather than guessed at.
 
 After `UNINSTALL complete`, persistent controller gates are stock and the added
 startup files are gone. Reboot once to clear volatile telemetry setup, unused
-shadow RAM, logs and locks. Until an error is resolved, retain the complete
+shadow RAM, dormant filter code, logs and locks. Until an error is resolved, retain the complete
 Lab script: it is the management and recovery entry point.
 
 ## Validation boundary
@@ -106,7 +131,17 @@ file-name validation as an explicit loop. The regression check reproduces
 this failure and verifies the generated launcher's extraction and cleanup
 after preprocessing.
 
+The existing 63 repository tests and 13 new native/runtime tests pass.
+The actual bundled ARM code was emulated across all 65,536 diagnostic
+words and all 65,536 module IDs, plus malformed rosters, lease failures,
+ABI preservation and recovery failures. These tests do not verify the
+target kernel instruction cache or actual app display. Retaining electrical
+alarm codes does not supply absent current, temperature or cell measurements.
+
 The complete Lab install/uninstall flow still requires hardware acceptance.
+Record #5/#9 before activation, absent during filtering, and restored after
+DISABLE; also check original internal messages, forced worker loss,
+reconnect, reboot and UNINSTALL.
 App/platform coverage and calibration under real battery loads are incomplete.
 Cell protection and regeneration must be validated independently of these
 software tests. See [Compatibility](FIRMWARE-COMPATIBILITY.md) and

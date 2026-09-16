@@ -10,6 +10,8 @@ def payload_files():
                'controller_settings.py': source / 'controller_settings.py',
                's1_battery_autostart.pth': source / 's1_battery_autostart.pth',
                'worker.py': source / 'worker.py',
+               'warning_filter.py': source / 'warning_filter.py',
+               'warning_hook_blob.py': source / 'warning_hook_blob.py',
                'telemetry.py': source / 'telemetry.py'}
     result = {}
     for name, path in sources.items():

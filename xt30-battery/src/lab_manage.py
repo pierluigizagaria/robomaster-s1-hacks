@@ -4,7 +4,8 @@ Python 3.6 compatible. Runs outside the Lab interpreter using its embedded
 bundle. Never starts ADB or restarts robot services.
 """
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
+import io
 import json
 import os
 import signal
@@ -21,6 +22,13 @@ BOOT_LOG = '/tmp/s1-battery-autostart.log'
 WORKER_LOG = '/tmp/s1-battery-estimator.log'
 CONTROL_LOCK = '/tmp/s1-battery-install.lock'
 WORKER_LOCK = '/tmp/s1-battery-estimator.lock'
+
+
+def quiet_call(callback, *args, **kwargs):
+    # Developer helpers keep their detailed CLI output. Lab reports completed
+    # steps below; exceptions still propagate and prevent a success message.
+    with redirect_stdout(io.StringIO()):
+        return callback(*args, **kwargs)
 
 
 @contextmanager
@@ -111,47 +119,68 @@ def stop_manual_worker():
 def show_status():
     manifest = installation()
     if manifest is None:
-        print('Not installed. Automatic startup is absent.')
+        print('XT30 mod: Not installed | Auth/capacity checks: not read')
         if worker_locked():
             print('A temporary estimator is still running; use DISABLE or UNINSTALL to stop it.')
         return
     claim = manage.process_claim()
-    print('Installed. Automatic startup: %s.' % (
-        'enabled' if os.path.isfile(manage.ROOT + '/enabled') else 'disabled'))
+    # Installation and worker state do not prove the current controller flags.
+    # Reading them here would pause HDVT; STATUS remains non-invasive.
+    print('XT30 mod: installed | Auto-start: %s | Auth/capacity checks: not read' % (
+        'on' if os.path.isfile(manage.ROOT + '/enabled') else 'off'))
     rows = events()
     active = [row for row in rows if row.get('event') == 'active']
     if claim and active and active[-1].get('worker_pid') == claim['pid'] and \
             active[-1].get('worker_started') == claim['started']:
         samples = [row for row in rows if row.get('event') in ('active', 'estimate')]
         latest = samples[-1]
-        print('Estimator running: %s%%, %.3f V.' % (latest['percent'], latest['voltage_mv'] / 1000.0))
+        print('Estimate: %s%% | %.3f V | Running' % (
+            latest['percent'], latest['voltage_mv'] / 1000.0))
     elif claim:
-        print('Startup is pending. End the Lab program and allow about 30 seconds.')
+        print('Estimate: starting in background')
     else:
-        print('Estimator stopped. INSTALL starts a new attempt and enables future boots.')
+        print('Estimator: stopped | Run INSTALL to start it and enable auto-start.')
         if rows:
-            print('Last worker event: ' + json.dumps(rows[-1], sort_keys=True))
+            last = rows[-1]
+            detail = last.get('error') or last.get('reason') or last.get('status')
+            print('Last event: %s%s' % (last.get('event', 'unknown'),
+                                       ' | %s' % detail if detail is not None else ''))
+    if 'warning_filter.py' in manifest['files']:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('s1_warning_status', manage.ROOT + '/warning_filter.py')
+        warning_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(warning_module)
+        try:
+            probe = warning_module.WarningFilter(readonly=True)
+            try:
+                state = probe.status()
+                print('Battery authentication errors / missing battery information: %s' % (
+                    'filtered' if state['filter_active'] else 'unfiltered'))
+            finally:
+                probe.close()
+        except (OSError, RuntimeError) as exc:
+            print('Warning filter: not verified | ' + str(exc))
+    else:
+        print('This older installation has no battery warning filter. UNINSTALL then INSTALL this script to update.')
 
 
 def start_installed():
     if manage.process_claim():
-        print('The installed estimator is already running or starting; no duplicate launched.')
-        return
+        return 'already running or starting'
     if worker_locked():
         raise RuntimeError('another estimator is active; run DISABLE before INSTALL')
-    manage.verify_native_references()
+    quiet_call(manage.verify_native_references)
     if os.path.lexists(manage.CLAIM):
         # Only an explicit INSTALL authorizes another attempt after STOP/fault.
         manage.read(manage.CLAIM)
         if manage.process_claim():
-            return
+            return 'already running or starting'
         os.unlink(manage.CLAIM)
     with open(BOOT_LOG, 'ab', buffering=0) as log:
         subprocess.Popen([PYTHON, '-S', manage.ROOT + '/boot.py', '--run'],
                          stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                          close_fds=True, start_new_session=True)
-    print('Startup requested. End this Lab program so it can release its telemetry socket.')
-    print('Allow about 30 seconds; startup waits up to five minutes for live voltage.')
+    return 'startup requested'
 
 
 def perform(mode):
@@ -169,45 +198,43 @@ def perform(mode):
             expected = {name: manage.digest(data) for name, data in manage.source_files().items()}
             if manifest['files'] != expected:
                 raise RuntimeError('a different version is installed; run UNINSTALL before INSTALL')
-            print('The same version is already installed; retaining its files.')
         else:
-            manage.main('install', True)
+            quiet_call(manage.main, 'install', True)
         stop_manual_worker()
-        manage.main('disable', True)
+        quiet_call(manage.main, 'disable', True)
         time.sleep(7)
-        print('Configuring XT30 battery gates. An independent BMS is required.', flush=True)
-        controller_settings.set_mode('XT30')
-        manage.main('enable', True)
-        start_installed()
-        print('INSTALL complete. Automatic startup is enabled; no Lab or ADB is needed after reboot.')
+        quiet_call(controller_settings.set_mode, 'XT30')
+        print('Battery checks: authentication OFF | capacity OFF (verified)', flush=True)
+        quiet_call(manage.main, 'enable', True)
+        startup = start_installed()
+        print('INSTALL complete | Auto-start: ON | Background estimate/filter: ' + startup)
         return
     if manifest is not None and mode == 'UNINSTALL':
-        manage.main('uninstall', False)  # Preflight unknown files before changes.
+        quiet_call(manage.main, 'uninstall', False)  # Preflight unknown files before changes.
     stop_manual_worker()
     if manifest is None:
         # Also verify a legacy temporary run when no persistent install exists.
         previous_root = manage.ROOT
         try:
             manage.ROOT = os.path.dirname(os.path.abspath(__file__))
-            manage.verify_native_references()
+            quiet_call(manage.verify_native_references, recover_warnings=True)
         finally:
             manage.ROOT = previous_root
-        print('No persistent installation to remove. Native references verified restored.')
     else:
-        manage.main('disable', True)
+        quiet_call(manage.main, 'disable', True)
     time.sleep(7)  # Native presence timeout plus outgoing roster cadence.
     if mode == 'UNINSTALL':
         manage.verify_stock()
-        controller_settings.set_mode('STOCK')
+        quiet_call(controller_settings.set_mode, 'STOCK')
+        print('Battery checks: authentication ON | capacity ON (verified)', flush=True)
         if manifest is not None:
-            manage.main('uninstall', True)
-    print('Software battery reports stopped. The original XT30 indicator may return to 0%.')
+            quiet_call(manage.main, 'uninstall', True)
     if mode == 'DISABLE':
-        print('Estimate and automatic startup disabled. XT30 controller settings are retained.')
-        print('INSTALL enables the estimate again; UNINSTALL also restores stock battery checks.')
+        print('DISABLE complete | Estimate/filter: stopped | Auto-start: OFF')
+        print('Battery checks: unchanged (UNINSTALL restores stock checks)')
     else:
-        print('UNINSTALL complete. Stock battery checks restored; the original smart battery is required again.')
-        print('Restart once to also clear volatile telemetry settings and logs.')
+        print('UNINSTALL complete | Estimate/filter removed | Stock battery required')
+        print('Next: restart once to clear temporary telemetry settings and logs.')
 
 
 def main(mode):

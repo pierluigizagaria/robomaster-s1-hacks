@@ -1,5 +1,6 @@
 """Verified user-facing states and bounded launcher cleanup, without hardware."""
 import ast
+import base64
 import builtins
 import importlib.util
 import io
@@ -21,7 +22,7 @@ spec.loader.exec_module(fixture_module)
 
 
 def launcher_functions():
-    tree = ast.parse((ROOT / 'src/lab_launcher.template.py').read_text())
+    tree = ast.parse((ROOT / 'src/lab_bridge.py').read_text())
     tree.body = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
     namespace = {}
     exec(compile(tree, 'launcher-functions', 'exec'), namespace)
@@ -43,7 +44,7 @@ class ReportingTests(unittest.TestCase):
         self.fixture.output.truncate()
         self.fixture.settings.reset_mock()
         self.controller.perform('STATUS')
-        self.assertIn('Battery checks (auth/capacity): OFF (last verified)', self.fixture.output.getvalue())
+        self.assertIn('Battery checks: disabled (last verified)', self.fixture.output.getvalue())
         self.assertNotIn('not read', self.fixture.output.getvalue())
         self.fixture.settings.set_mode.assert_not_called()
 
@@ -55,7 +56,7 @@ class ReportingTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.controller.perform('UNINSTALL')
         self.assertNotIn('battery_checks', json.loads((self.fixture.root / 'manifest.json').read_text()))
-        self.assertNotIn('UNINSTALL complete', self.fixture.output.getvalue())
+        self.assertNotIn('Battery checks: restored', self.fixture.output.getvalue())
         self.assertTrue(self.fixture.hook.exists())
 
     def test_old_installation_never_invents_verified_off(self):
@@ -66,15 +67,15 @@ class ReportingTests(unittest.TestCase):
         self.fixture.output.truncate()
         self.controller.perform('STATUS')
         text = self.fixture.output.getvalue()
-        self.assertNotIn('OFF (last verified)', text)
-        self.assertIn('run INSTALL to verify', text)
+        self.assertNotIn('disabled (last verified)', text)
+        self.assertIn('Battery checks: not verified', text)
 
     def test_failed_startup_does_not_print_install_complete(self):
         with patch.object(self.controller, 'start_installed', side_effect=RuntimeError('startup failed')):
             with self.assertRaises(RuntimeError):
                 self.controller.perform('INSTALL')
-        self.assertIn('authentication OFF | capacity OFF (verified)', self.fixture.output.getvalue())
-        self.assertNotIn('INSTALL complete', self.fixture.output.getvalue())
+        self.assertIn('Battery checks: disabled', self.fixture.output.getvalue())
+        self.assertNotIn('Battery percentage estimate: active', self.fixture.output.getvalue())
 
     def test_late_background_process_prevents_uninstall_success(self):
         self.controller.perform('INSTALL')
@@ -84,7 +85,85 @@ class ReportingTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'still stopping'):
                 self.controller.perform('UNINSTALL')
         self.assertTrue(self.fixture.hook.exists())
-        self.assertNotIn('UNINSTALL complete', self.fixture.output.getvalue())
+        self.assertNotIn('Battery checks: restored', self.fixture.output.getvalue())
+
+    def test_action_rows_use_plain_label_value_messages(self):
+        self.fixture.output.seek(0)
+        self.fixture.output.truncate()
+        self.controller.perform('INSTALL')
+        self.assertEqual(self.fixture.output.getvalue().splitlines(), [
+            'Battery checks: disabled',
+            'Battery warnings: pending',
+            'Battery percentage estimate: starting after Lab',
+        ])
+        self.fixture.output.seek(0)
+        self.fixture.output.truncate()
+        self.controller.perform('DISABLE')
+        self.assertEqual(self.fixture.output.getvalue().splitlines(), [
+            'Battery warnings: restored',
+            'Battery percentage estimate: disabled',
+        ])
+        self.controller.perform('INSTALL')
+        self.fixture.output.seek(0)
+        self.fixture.output.truncate()
+        self.controller.perform('UNINSTALL')
+        self.assertEqual(self.fixture.output.getvalue().splitlines(), [
+            'Battery checks: restored',
+            'Battery warnings: restored',
+            'Battery percentage estimate: disabled',
+        ])
+
+    def test_status_rows_are_flushed_immediately(self):
+        tree = ast.parse((ROOT / 'src/lab_manage.py').read_text())
+        function = next(node for node in tree.body
+                        if isinstance(node, ast.FunctionDef) and node.name == 'show_status')
+        calls = [node for node in ast.walk(function)
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                 and node.func.id == 'print']
+        self.assertTrue(calls)
+        for call in calls:
+            flush = next((item.value for item in call.keywords if item.arg == 'flush'), None)
+            self.assertIsInstance(flush, ast.Constant)
+            self.assertTrue(flush.value)
+
+    def test_status_shows_voltage_and_fault_before_restoration(self):
+        self.controller.perform('INSTALL')
+        rows = [
+            {'event': 'active', 'worker_pid': 21, 'worker_started': 'boot',
+             'voltage_mv': 10920, 'percent': 9, 'monotonic': time.monotonic()},
+            {'event': 'worker_error', 'error': 'voltage outside the configured 3S range',
+             'voltage_mv': 9000},
+            {'event': 'restored', 'reason': 'parent_closed_pipe'},
+        ]
+        Path(self.controller.WORKER_LOG).write_text(
+            ''.join(json.dumps(row) + '\n' for row in rows))
+        self.fixture.output.seek(0)
+        self.fixture.output.truncate()
+        self.controller.perform('STATUS')
+        output = self.fixture.output.getvalue()
+        self.assertIn('Battery percentage estimate: inactive', output)
+        self.assertIn('Last event: restored | parent_closed_pipe', output)
+        self.assertIn('Last recorded sample: 10.920 V | 9% estimate', output)
+        self.assertIn('Last fault: worker_error | voltage outside the configured 3S range | 9000 mV', output)
+
+    def test_status_shows_recent_sample_while_worker_is_active(self):
+        self.controller.perform('INSTALL')
+        self.fixture.claim.return_value = {'pid': 21, 'started': 'boot'}
+        rows = [
+            {'event': 'active', 'worker_pid': 21, 'worker_started': 'boot',
+             'voltage_mv': 10920, 'percent': 9, 'monotonic': time.monotonic()},
+            {'event': 'estimate', 'voltage_mv': 10890, 'percent': 9,
+             'monotonic': time.monotonic()},
+        ]
+        Path(self.controller.WORKER_LOG).write_text(
+            ''.join(json.dumps(row) + '\n' for row in rows))
+        self.fixture.output.seek(0)
+        self.fixture.output.truncate()
+        self.controller.perform('STATUS')
+        output = self.fixture.output.getvalue()
+        self.assertIn('Battery percentage estimate: active', output)
+        self.assertIn('Last recorded sample: 10.890 V | 9% estimate', output)
+        self.assertNotIn('Last fault:', output)
 
 
 class LauncherCleanupTests(unittest.TestCase):
@@ -137,7 +216,7 @@ class LauncherCleanupTests(unittest.TestCase):
         offset, pending = 0, b''
         with patch('sys.stdout', new_callable=io.StringIO) as output:
             for _ in range(3):
-                offset, pending = self.namespace['read_progress'](os_api, log, offset, pending)
+                offset, pending = self.namespace['progress'](os_api, log, offset, pending)
         self.assertEqual(output.getvalue(), 'Battery checks: authentication OFF\nApp errors: restored\n')
         self.assertEqual(pending, b'')
         self.assertEqual(offset, len(output.getvalue()))
@@ -151,22 +230,46 @@ class LauncherCleanupTests(unittest.TestCase):
         gimbal.resume.assert_called_once()
         gimbal.recenter.assert_not_called()
 
+    def test_ok_follows_framework_stop_and_controller_exit(self):
+        order = []
+        self.namespace.update(
+            _stock_stop=lambda: order.append('stop'),
+            _stock_robot_exit=lambda: order.append('controller exit'),
+            ACTION_COMPLETE=True, FRAMEWORK_STOPPED=False,
+            print=lambda message: order.append(message))
+        self.namespace['stop']()
+        self.namespace['robot_exit']()
+        self.assertEqual(order, ['stop', 'controller exit', 'INSTALL OK'])
+
+    def test_failed_action_never_prints_late_ok(self):
+        order = []
+        self.namespace.update(
+            _stock_stop=lambda: order.append('stop'),
+            _stock_robot_exit=lambda: order.append('controller exit'),
+            ACTION_COMPLETE=False, FRAMEWORK_STOPPED=False,
+            print=lambda message: order.append(message))
+        self.namespace['stop']()
+        self.namespace['robot_exit']()
+        self.assertEqual(order, ['stop', 'controller exit'])
+
     def test_failed_shutdown_retains_temporary_recovery_bundle(self):
-        generated = ast.parse((ROOT / 'scripts/xt30_battery.py').read_text())
-        for node in generated.body:
-            if isinstance(node, ast.Assign):
-                self.namespace[node.targets[0].id] = ast.literal_eval(node.value)
+        generated = (ROOT / 'scripts/xt30_battery.py').read_text()
+        _, values = fixture_module.embedded_lab_payload(generated)
+        self.namespace.update(values)
+        self.namespace['RUNNER_CODE'] = "import base64;exec(base64.b64decode('" + \
+                                        self.namespace['RUNNER_B64'] + "'))"
         rm_define = types.ModuleType('rm_define')
         rm_define.__dict__['__builtins__'] = builtins.__dict__
         self.namespace['rm_define'] = rm_define
         job = Mock()
         job.poll.return_value = None
         job.wait.side_effect = subprocess.TimeoutExpired('job', 1)
-        original = tempfile.mkdtemp
+        original = tempfile.NamedTemporaryFile
         with tempfile.TemporaryDirectory() as directory:
-            def make_folder(**kwargs):
-                return original(prefix=kwargs['prefix'], dir=directory)
-            with patch.object(tempfile, 'mkdtemp', side_effect=make_folder), \
+            def make_archive(**kwargs):
+                kwargs['dir'] = directory
+                return original(**kwargs)
+            with patch.object(tempfile, 'NamedTemporaryFile', side_effect=make_archive), \
                     patch.object(subprocess, 'Popen', return_value=job), \
                     patch.object(os, 'pread', return_value=b'', create=True), \
                     patch.object(time, 'monotonic', side_effect=[0, 91]), \
@@ -176,19 +279,14 @@ class LauncherCleanupTests(unittest.TestCase):
             self.assertIn('Recovery has not finished', output.getvalue())
             remaining = list(Path(directory).iterdir())
             self.assertEqual(len(remaining), 1)
-            self.assertTrue((remaining[0] / 'lab_manage.py').is_file())
+            self.assertTrue(remaining[0].is_file())
+            self.assertEqual(json.loads(remaining[0].read_bytes()),
+                             fixture_module.bundle.payload_files())
 
-    def test_cleanup_survives_lab_stop_checkpoints(self):
-        tree = ast.parse(fixture_module.preprocess_lab_source(
-            (ROOT / 'src/lab_launcher.template.py').read_text()))
-        functions = [node for node in tree.body[0].body if isinstance(node, ast.FunctionDef)]
-        self.namespace['time'] = types.SimpleNamespace(sleep=Mock(side_effect=RuntimeError('Lab Stop')))
-        exec(compile(ast.Module(body=functions, type_ignores=[]), 'checkpoint-functions', 'exec'), self.namespace)
-        os_api = Mock()
-        written = ['one', 'two', 'three']
-        self.namespace['remove_temporary_files'](os_api, written)
-        self.assertEqual([call.args[0] for call in os_api.unlink.call_args_list], ['three', 'two', 'one'])
-        self.assertEqual(written, [])
+    def test_small_lab_skeleton_has_no_checkpointed_loops(self):
+        source = (ROOT / 'src/lab_launcher.template.py').read_text()
+        self.assertNotIn('for ', source)
+        self.assertNotIn('while ', source)
 
 
 class CompletionTests(unittest.TestCase):
@@ -202,21 +300,52 @@ class CompletionTests(unittest.TestCase):
             with self.subTest(output=data), tempfile.TemporaryDirectory() as directory:
                 _, output, _, _ = self.fixture.run_launcher(
                     directory, child_output=data, expected_error='completion was not confirmed')
-                self.assertIn('ERROR: Installer completion was not confirmed', output)
+                self.assertNotIn('ERROR:', output)
+                self.assertNotIn('INSTALL OK', output)
                 self.assertEqual(list(Path(directory).iterdir()), [])
 
     def test_nonzero_exit_still_fails_with_a_completion_marker(self):
         with tempfile.TemporaryDirectory() as directory:
             _, output, _, _ = self.fixture.run_launcher(
                 directory, returncode=1, expected_error='exit 1')
-        self.assertIn('ERROR: Action failed (exit 1)', output)
+        self.assertNotIn('ERROR:', output)
 
-    def test_success_marker_is_private_and_adds_no_console_row(self):
+    def test_nonzero_exit_keeps_controller_error_in_lab_failure(self):
+        child = b'ERROR while preparing installation: installed file changed\n'
+        with tempfile.TemporaryDirectory() as directory:
+            _, output, _, _ = self.fixture.run_launcher(
+                directory, child_output=child, returncode=1,
+                expected_error='installed file changed')
+        self.assertNotIn('ERROR:', output)
+        self.assertNotIn('INSTALL OK', output)
+
+    def test_success_marker_is_private_and_ok_follows_framework_exit(self):
         with tempfile.TemporaryDirectory() as directory:
             _, output, _, _ = self.fixture.run_launcher(directory)
         self.assertIn('Controller finished.', output)
         self.assertNotIn('XT30_ACTION_DONE', output)
-        self.assertEqual(len(output.splitlines()), 2)
+        self.assertTrue(output.endswith('INSTALL OK\n'))
+        self.assertEqual(len(output.splitlines()), 3)
+
+    def test_status_has_no_misleading_ok_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, output, _, _ = self.fixture.run_launcher(directory, mode='STATUS')
+        self.assertTrue(output.startswith('XT30 Battery Mod status\n'))
+        self.assertNotIn('STATUS OK', output)
+
+    def test_cleanup_failure_prevents_public_success(self):
+        source = self.fixture.source
+        encoded = next(line.split("'", 2)[1] for line in source.splitlines()
+                       if line.startswith('PAYLOAD_B64 = '))
+        payload = base64.b64decode(encoded).decode('utf-8')
+        changed = payload.replace('os_api.unlink(path)', "raise Exception('cleanup failed')")
+        self.assertNotEqual(payload, changed)
+        source = source.replace(encoded, base64.b64encode(changed.encode('utf-8')).decode('ascii'), 1)
+        with tempfile.TemporaryDirectory() as directory:
+            _, output, _, _ = self.fixture.run_launcher(
+                directory, source=source, expected_error='cleanup failed')
+        self.assertNotIn('ERROR:', output)
+        self.assertNotIn('INSTALL OK', output)
 
     def test_controller_confirms_only_after_main_returns(self):
         tree = ast.parse((ROOT / 'src/lab_manage.py').read_text())

@@ -67,7 +67,8 @@ def process_identity(pid):
 
 class SourceReadiness:
     """Require a continuous live window, not two transient startup readings."""
-    def __init__(self):
+    def __init__(self, seconds=10):
+        self.seconds = seconds
         self.source = None
         self.voltage = None
         self.since = self.changed = None
@@ -82,7 +83,7 @@ class SourceReadiness:
             self.since = now
         if voltage != self.voltage:
             self.voltage, self.changed = voltage, now
-        return now - self.changed <= 1 and now - self.since >= 10
+        return now - self.changed <= 1 and now - self.since >= self.seconds
 
 
 def prime_voltage(telemetry, clock):
@@ -112,7 +113,7 @@ def prime_voltage(telemetry, clock):
             if len(payload) != 12 or payload[4:11] != bytes(7):
                 raise RuntimeError('unexpected native battery data during startup')
             voltage = struct.unpack('<H', payload[2:4])[0]
-            if not 9300 <= voltage <= 12800:
+            if not 0 < voltage <= 12800:
                 raise RuntimeError('invalid startup battery voltage: %d mV' % voltage)
             readings.add(voltage)
             count += 1
@@ -125,7 +126,7 @@ def prime_voltage(telemetry, clock):
     print('Battery source primed at 10 Hz; temporary subscription and Lab socket released.', flush=True)
 
 
-def run(duration=86400, startup_delay=3, ready_timeout=300):
+def run(duration=86400, startup_delay=3, ready_timeout=300, ready_window=10):
     import json
     import time
     if os.geteuid() != 0 or not enabled():
@@ -140,7 +141,8 @@ def run(duration=86400, startup_delay=3, ready_timeout=300):
         return
     with os.fdopen(fd, 'w') as stream:
         json.dump({'pid': os.getpid(), 'started': process_identity(os.getpid())}, stream)
-    print('Waiting for ten continuous seconds of live voltage (up to %s seconds).' % ready_timeout, flush=True)
+    print('Waiting for %s seconds of live voltage (up to %s seconds).' %
+          (ready_window, ready_timeout), flush=True)
     time.sleep(startup_delay)
     if not enabled():
         return
@@ -150,8 +152,9 @@ def run(duration=86400, startup_delay=3, ready_timeout=300):
     import telemetry
     import struct
     deadline = time.monotonic() + ready_timeout
-    readiness = SourceReadiness()
+    readiness = SourceReadiness(ready_window)
     primed = False
+    last_wait_reason = None
     while enabled() and time.monotonic() < deadline:
         try:
             pid = worker.find_process()
@@ -170,14 +173,14 @@ def run(duration=86400, startup_delay=3, ready_timeout=300):
             voltage = struct.unpack('<H', record[:2])[0]
             if record[2:9] != bytes(7):
                 raise RuntimeError('native battery data is present')
-            if not 9300 <= voltage <= 12800:
-                raise RuntimeError('voltage outside configured 3S range')
+            if not 0 < voltage <= 12800:
+                raise RuntimeError('invalid battery voltage source')
             if worker.identity(pid) != started:
                 raise RuntimeError('HDVT restarted during readiness check')
             if not primed:
                 prime_voltage(telemetry, time)
                 primed = True
-                readiness = SourceReadiness()
+                readiness = SourceReadiness(ready_window)
                 continue
             if readiness.update(pid, started, voltage, time.monotonic()):
                 if not enabled():
@@ -208,8 +211,11 @@ def run(duration=86400, startup_delay=3, ready_timeout=300):
                     # Reached only on exec failure; successful exec replaces us.
                     os.close(launch_fd)
         except (OSError, RuntimeError) as exc:
-            readiness = SourceReadiness()
-            print('Not ready: ' + str(exc), flush=True)
+            readiness = SourceReadiness(ready_window)
+            reason = str(exc)
+            if reason != last_wait_reason:
+                print('Not ready: ' + reason, flush=True)
+                last_wait_reason = reason
         time.sleep(0.25)
     print('Autostart ended without activating the estimator.', flush=True)
 
@@ -228,8 +234,10 @@ elif __name__ == '__main__':
     parser.add_argument('--duration', type=int, default=86400)
     parser.add_argument('--startup-delay', type=float, default=3)
     parser.add_argument('--ready-timeout', type=float, default=300)
+    parser.add_argument('--ready-window', type=float, default=10)
     args = parser.parse_args()
-    if not 1 <= args.duration <= 86400 or not 0 <= args.startup_delay <= 60 or not 1 <= args.ready_timeout <= 600:
+    if (not 1 <= args.duration <= 86400 or not 0 <= args.startup_delay <= 60 or
+            not 1 <= args.ready_timeout <= 600 or not 1 <= args.ready_window <= 30):
         parser.error('invalid bounded duration or startup timeout')
     if args.run:
-        run(args.duration, args.startup_delay, args.ready_timeout)
+        run(args.duration, args.startup_delay, args.ready_timeout, args.ready_window)

@@ -75,6 +75,38 @@ def installed_manifest():
     return manifest
 
 
+def bytecode_cache(manifest):
+    """Identify only disposable Python 3.6 cache files for managed modules."""
+    cache_dir = ROOT + '/__pycache__'
+    if not os.path.lexists(cache_dir):
+        return [], []
+    if not stat.S_ISDIR(os.lstat(cache_dir).st_mode):
+        return [], ['__pycache__']
+    stems = {name[:-3] for name in manifest['files'] if name.endswith('.py')}
+    allowed = {stem + '.cpython-36' + suffix + '.pyc'
+               for stem in stems for suffix in ('', '.opt-1', '.opt-2')}
+    known = []
+    unknown = []
+    for name in sorted(os.listdir(cache_dir)):
+        path = cache_dir + '/' + name
+        if name in allowed and stat.S_ISREG(os.lstat(path).st_mode):
+            known.append(path)
+        else:
+            unknown.append('__pycache__/' + name)
+    return known, unknown
+
+
+def unexpected_installation_files(manifest):
+    expected = {name for name in manifest['files'] if name.endswith('.py')}
+    expected.update(('manifest.json', 'enabled'))
+    extras = set(os.listdir(ROOT)) - expected
+    if '__pycache__' in extras:
+        extras.remove('__pycache__')
+        _, cache_unknown = bytecode_cache(manifest)
+        extras.update(cache_unknown)
+    return sorted(extras)
+
+
 def write_new(path, data, mode=0o600):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
     try:
@@ -255,10 +287,10 @@ def main(action, execute=False):
         return
     manifest = installed_manifest()
     if action == 'uninstall':
-        expected = {name for name in manifest['files'] if name.endswith('.py')}
-        expected.update(('manifest.json', 'enabled'))
-        if set(os.listdir(ROOT)) - expected:
-            raise RuntimeError('unexpected installation files; nothing removed')
+        extras = unexpected_installation_files(manifest)
+        if extras:
+            raise RuntimeError('unexpected installation files: %s; nothing removed' %
+                               json.dumps(extras))
     if action == 'enable':
         verify_stock()
     if not execute:
@@ -270,6 +302,17 @@ def main(action, execute=False):
     elif action in ('disable', 'uninstall'):
         disable()
         if action == 'uninstall':
+            # A Python import can create bytecode after the first preflight.
+            # Recheck before deleting the hook or any manifest-owned source.
+            extras = unexpected_installation_files(manifest)
+            if extras:
+                raise RuntimeError('unexpected installation files: %s; nothing removed' %
+                                   json.dumps(extras))
+            cache_files, _ = bytecode_cache(manifest)
+            for path in cache_files:
+                os.unlink(path)
+            if os.path.lexists(ROOT + '/__pycache__'):
+                os.rmdir(ROOT + '/__pycache__')
             os.unlink(HOOK)
             managed = [name for name in manifest['files'] if name.endswith('.py')]
             for name in managed + ['manifest.json']:

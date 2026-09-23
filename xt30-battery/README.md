@@ -73,50 +73,78 @@ rating. Software validation is tracked separately under
 2. Leave the line near the top as `MODE = 'INSTALL'` and run the program.
 3. The script verifies the supported files and parameter names, sets the guarded
    XT30 state, installs the estimate and enables automatic startup, then reports
-   `INSTALL complete`. An existing matching installation is reused.
-4. The estimate and battery warning filter start in the background after Lab
-   ends. Use `MODE = 'STATUS'` to read their current state.
+   `INSTALL OK` near the end of Lab shutdown. An existing matching installation
+   is reused.
+4. Lab verifies that the detached starter has claimed the installation. The
+   estimator then waits for Lab to release its telemetry socket. Once Lab shows
+   `Execution Complete`, allow a few seconds for live-voltage sampling and use
+   `MODE = 'STATUS'` to verify the estimate and warning filter are active.
 5. On later power cycles, connect the RoboMaster app normally. You do not need to
    run Lab or ADB again.
 
 No other file needs to be copied to the robot and nothing is downloaded.
+The generated Lab program has seven physical lines: one `MODE`, one large
+Base64 payload and a short decoder. The readable bridge and robot-side code
+live in `src/`; `build_lab_script.py` rebuilds the pasteable program. This Lab
+shell can be reused with a different embedded payload without copying
+application logic into the editor.
 
 The console identifies the whole **XT30 Battery Mod**, including the controller
-changes. `Battery checks: authentication OFF | capacity OFF (verified)` appears
-only after the parameter operation and readback succeed. `INSTALL complete`
-confirms setup and a background startup request; use `STATUS` to check whether
-the estimate and warning filter are actually running. Routine developer JSON,
-paths and parameter numbers are omitted from Lab output; failures still abort
-the action and report an error.
+changes. `Battery checks: disabled` appears only after the parameter operation
+and readback succeed. `INSTALL OK` appears only after the controller exits
+successfully, writes its private completion record, the temporary bundle is
+removed, and DJI's controller exit returns. It confirms installation and a
+running starter, not an active percentage estimate. The app still has to close its
+event and reset Lab's running state before `Execution Complete`. Use `STATUS`
+to check whether the detached estimate
+and warning filter are currently active. Routine developer JSON, paths and
+parameter numbers are omitted from Lab output; failures still abort the action
+and report an error. On an explicit Lab install, startup uses a 0.5-second
+delay and a two-second live-voltage window. Automatic startup after a reboot
+keeps its longer default readiness window. A fresh install skips the old-worker
+settling delay; reinstalling over an existing version retains that check.
 
-INSTALL and UNINSTALL each include a fixed seven-second settling period plus
-file and parameter checks. This happens before the completion message. Any
-remaining `Running` display after that message is launcher/framework cleanup;
-the 90-second action limit and 30-second recovery limit are failure deadlines,
-not normal delays. A `Please wait` message appears immediately and results follow as each
-step finishes. A successful new installation normally produces four lines:
+UNINSTALL includes a seven-second settling period; INSTALL uses it when an
+existing installation or worker must be stopped. Any remaining
+`Running` display after `INSTALL OK` belongs to the last stock DJI event and
+manager cleanup; the XT30 controller and launcher cleanup have returned.
+The 90-second action limit and 30-second recovery limit are failure deadlines,
+not normal delays. A `please wait` message appears immediately and results
+follow as each step finishes. A successful new installation produces five lines:
 
 ```text
-XT30 Battery Mod: INSTALL | Please wait: configuring battery checks and app battery errors...
-Battery checks: authentication OFF | capacity OFF (verified)
-App battery errors: authentication / missing information | Filter: starting in background
-INSTALL complete | Auto-start: ON | Battery percentage estimate: starting in background
+XT30 Battery Mod installing, please wait...
+Battery checks: disabled
+Battery warnings: pending
+Battery percentage estimate: starting after Lab
+INSTALL OK
 ```
 
-`Execution Complete` by itself does not verify installation. If only the initial
-line appears, run `STATUS` before retrying. The launcher requires an explicit
+The app's `Execution Complete` is the indication that Lab itself has finished.
+It does not by itself verify installation: also check the completed state rows
+and absence of `ERROR`. Run `STATUS` after Lab finishes to verify that the
+detached estimator became active. If only the initial line appears, run `STATUS` before
+retrying. The launcher requires an explicit
 completion record from the installer and propagates errors to Lab instead of
-ending normally after printing them. This reporting update does not require
+ending normally after printing them. Child error lines are used for the final
+Lab exception without being printed a second time by the launcher. This
+reporting update does not require
 uninstalling an otherwise matching installation.
 
-The app error filter hides authentication errors and missing smart-battery
-information. `Starting in background` describes a startup request; `STATUS`
-confirms whether the filter and percentage estimate actually became active.
-The small
-motion-controller LED blinking yellow means
-an autonomous program is running; blinking blue means normal operation, according
-to the [DJI manual, page 15](https://dl.djicdn.com/downloads/robomaster-s1/20191122/RoboMaster_S1_User_Manual_v1.6_EN.pdf).
-Those colors alone do not verify installation or battery settings.
+Every STATUS row is flushed immediately before the private completion record.
+If the controller exits with an error, the launcher also carries the last
+controller `ERROR` into Lab's final traceback, so the useful cause is not
+replaced by a generic exit code.
+
+The battery warning filter hides authentication errors and missing smart-battery
+information. `STATUS` checks whether the warning filter and battery percentage
+estimate are active.
+For the small motion-controller LED, slow blinking yellow means an autonomous
+program is running and slow blinking blue means normal operation. DJI lists
+slow blinking red for Stop Mode, which can include failed communication with
+the battery; see the [DJI manual, page 15](https://dl.djicdn.com/downloads/robomaster-s1/20200324/RoboMaster_S1_User_Manual_v1.8_EN.pdf).
+Yellow blinking at the time of a battery worker error does not, by itself,
+identify a battery alarm. Check `STATUS` and the app's System error details.
 
 If Lab reports `No module named 'zlib'` or an `IndentationError` near the
 embedded file-list check, replace the whole program with the current generated
@@ -152,23 +180,29 @@ Change only `MODE` and run the same complete script:
 | `DISABLE` | Stop the estimate/filter and future startup; restore warning reporting; retain files and XT30 settings |
 | `UNINSTALL` | Restore warning reporting and stock battery checks; remove the estimate's startup hook and files |
 
-`STATUS` normally prints three compact lines: XT30 installation and auto-start;
-estimated charge, voltage and estimator state; battery authentication / missing information warning filtering.
-The first line shows `Battery checks (auth/capacity): OFF (last verified)` when
-INSTALL recorded a successful readback. This is the last verified setting,
-not a fresh controller reading: STATUS does not pause the controller. Older
-installations without that record show an instruction to verify the settings
-instead of inventing OFF from the presence of files. INSTALL and UNINSTALL
-report verified checks after their own parameter operation; DISABLE reports
-that the checks are unchanged and directs users to UNINSTALL for stock restoration.
-Extra diagnostic details appear only when the estimator is stopped or a check fails. The
-launcher also prints other actions and errors line by line so Lab does not
-collapse their output into one long message. Copy the current **whole script**
+`STATUS` normally prints three compact state lines: battery checks, battery
+warnings and battery percentage estimate. It intentionally omits a separate
+installation row because those feature states already describe the useful
+result. `Battery checks: disabled (last verified)` is historical readback, not
+a fresh controller transaction: STATUS does not pause the controller. Older
+installations without that record show `Battery checks: not verified` instead
+of inventing a state from installed files. INSTALL and UNINSTALL report the
+checks only after their own parameter operation succeeds. `STATUS` also shows
+the last recorded pack voltage and estimate, with the sample age, when the
+worker has produced one. If the worker stopped, this sample is historical;
+`Last fault` preserves an error even when the final log event is a successful
+RAM restoration. If an extra file would prevent `UNINSTALL`, `STATUS` lists its
+name without changing the installation. `UNINSTALL` recognizes and removes
+Python 3.6 bytecode cache files only when they belong to managed modules; other
+cache entries still block removal. The
+launcher prints normal progress line by line; it carries an error into Lab's
+final exception without repeating the child's `ERROR` line. Copy the current **whole script**
 and select `MODE = 'STATUS'` to use this formatting with an existing installation;
 no reinstall is needed just to read its status.
 
 For a **complete reversal**, set `MODE = 'UNINSTALL'`, run it, wait for
-`UNINSTALL complete`, and reboot once. The original smart battery checks are
+`Battery checks: restored`, `UNINSTALL OK` and then the app's
+`Execution Complete`; reboot once. The original smart battery checks are
 active again; normal operation then requires a working original smart battery.
 The reboot also clears temporary telemetry frequency settings, unused RAM
 storage, logs and locks. This intentionally restores the documented stock
@@ -193,8 +227,9 @@ real robot. See the [lifecycle investigation](docs/LIFECYCLE-RECOVERY.md).
 ## What the estimate means
 
 The worker uses a piecewise 3S voltage curve, a 30-second median window and a
-gradual filter. Lower percentages require repeated confirmation; upward
-recovery is limited to roughly one percentage point per minute.
+gradual filter. Lower percentages require repeated confirmation. After 60
+consecutive seconds of a higher filtered estimate, the displayed percentage
+catches up to that estimate instead of rising one point per minute.
 
 | Pack voltage | Approximate curve value before filtering |
 |---|---|
@@ -206,9 +241,41 @@ recovery is limited to roughly one percentage point per minute.
 | 12.60 V | 100% |
 
 The filters reduce brief load-induced changes but delay sustained changes too.
+The estimator does not stop just because a nonzero raw voltage briefly falls
+below 9.3 V under motor load. Zero or out-of-range source data still stops it;
+this is input validation, not a discharge-protection circuit. The BMS and
+power wiring must provide their own protection.
 Repeated loads, temperature, aging and startup under load can bias the result. The displayed number is neither
 remaining runtime nor a safe-discharge guarantee. **Never wait for 0% to decide
 whether the battery is safe.**
+
+If the app jumps from a low percentage to 0%, run `STATUS` with the robot
+stationary. An active worker with a recent low-voltage sample indicates that the
+voltage curve produced the estimate. An inactive worker or a `Last fault` line
+indicates that the software override stopped; the app's 0% then cannot be used
+to infer the pack charge. Measure the pack and individual cell groups before
+further discharge if low voltage is suspected.
+
+For a detailed trace while diagnosing a voltage drop, root ADB users can run
+[`diagnostics/log_voltage.py`](diagnostics/log_voltage.py) on the robot. It samples the
+original pack-voltage cache every 250 ms and writes `elapsed_s,voltage_mv` to
+`/tmp/s1-battery-voltage.csv` for up to one hour. It changes no controller
+setting or telemetry. Copy the CSV off the robot before rebooting; `/tmp` is
+volatile. This records every logger sample, not individual cell voltages or
+the peak current between samples. Avoid further heavy-load testing if the pack
+has already shown deep voltage drops.
+
+With a root ADB connection already open, run from the repository root:
+
+```text
+adb push xt30-battery/diagnostics/log_voltage.py /tmp/s1-battery-voltage-logger.py
+adb shell /data/python_files/bin/python -S /tmp/s1-battery-voltage-logger.py --duration 600 --detach
+adb pull /tmp/s1-battery-voltage.csv
+```
+
+The logger refuses to overwrite an existing CSV. Its separate monitor output
+is `/tmp/s1-battery-voltage-monitor.log`. The duration ends automatically after
+ten minutes in the example above.
 
 ## Expected limits and failures
 

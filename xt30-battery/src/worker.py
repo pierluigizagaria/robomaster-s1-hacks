@@ -32,6 +32,7 @@ SHA256 = '19d957e93672ce105d09eec509ec2fb873c8eb69a9287e0a505a6438538b2b38'
 SYSTEM_EXE = '/system/bin/dji_sys'
 SYSTEM_SHA256 = 'fb0df0de6080231c83fc1f87584a5baa4f237040a0ad3f2ce3cf3ef1466a8181'
 MEDIAN_SAMPLES = 120  # 30 seconds at the worker's 250 ms sampling cadence
+UPWARD_CONFIRM_SAMPLES = 60  # 60 seconds of a higher estimate at 1 Hz
 GOT = 0xB0C1C
 CACHE = 0xB94A6
 GOT_SLOT = 0xB0928
@@ -80,13 +81,14 @@ class Estimate:
         self.filtered = None
         self.displayed = None
         self.down = 0
-        self.down_candidate = None
         self.up = 0
         self.next_publish = 0
 
     def sample(self, voltage, now):
-        if not 9300 <= voltage <= 12800:
-            raise RuntimeError('voltage outside the configured 3S range: %d mV' % voltage)
+        # A low but nonzero reading may be real motor-load sag. Do not stop the
+        # telemetry worker merely because it crosses a discharge threshold.
+        if not 0 < voltage <= 12800:
+            raise RuntimeError('invalid battery voltage source: %d mV' % voltage)
         if self.window is None:
             # Seed the startup window with the initial reading. The separate
             # source warmup still checks real input variation before activation.
@@ -103,16 +105,18 @@ class Estimate:
                 self.displayed = candidate
             elif candidate < self.displayed:
                 self.up = 0
-                self.down = self.down + 1 if candidate == self.down_candidate else 1
-                self.down_candidate = candidate
+                # Confirm a continuing decline even while its integer value
+                # changes. Requiring the same value can leave a high display
+                # unchanged throughout a sustained voltage collapse.
+                self.down += 1
                 if self.down >= 3:
                     self.displayed = candidate
                     self.down = 0
             elif candidate > self.displayed:
                 self.down = 0
                 self.up += 1
-                if self.up >= 60:
-                    self.displayed += 1
+                if self.up >= UPWARD_CONFIRM_SAMPLES:
+                    self.displayed = candidate
                     self.up = 0
             else:
                 self.down = self.up = 0
@@ -328,7 +332,7 @@ class BatteryPresence:
         if len(native_record) != 10:
             raise RuntimeError('invalid native source size for battery presence')
         voltage = struct.unpack('<H', native_record[:2])[0]
-        if native_record[2:9] != bytes(7) or not 9300 <= voltage <= 12800:
+        if native_record[2:9] != bytes(7) or not 0 < voltage <= 12800:
             raise RuntimeError('invalid native source for battery presence')
         if voltage != self.last_voltage:
             self.last_voltage, self.last_change = voltage, now

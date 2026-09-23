@@ -65,9 +65,10 @@ class RobotEstimatorTests(unittest.TestCase):
         self.assertEqual(worker.percent_from_mv(9000), 0)
         values = [worker.percent_from_mv(v) for v in range(9000, 12801)]
         self.assertEqual(values, sorted(values))
-        for voltage in (9299, 12801):
+        for voltage in (0, 12801):
             with self.assertRaises(RuntimeError):
                 worker.Estimate().sample(voltage, 0)
+        self.assertEqual(worker.Estimate().sample(9000, 0), 0)
 
     def test_no_fast_upward_recovery(self):
         estimate = worker.Estimate()
@@ -75,6 +76,23 @@ class RobotEstimatorTests(unittest.TestCase):
         for index in range(1, 50):
             estimate.sample(12300, index)
         self.assertEqual(estimate.displayed, 80)
+
+    def test_sustained_voltage_recovery_catches_up_to_filtered_estimate(self):
+        estimate = worker.Estimate()
+        for tick in range(480):
+            low = estimate.sample(11000, tick / 4)
+        self.assertLessEqual(low, 10)
+        for tick in range(480, 960):
+            recovered = estimate.sample(11500, tick / 4)
+        self.assertGreaterEqual(recovered, 40)
+
+    def test_sustained_decline_with_changing_candidates_updates_display(self):
+        estimate = worker.Estimate()
+        with patch.object(worker, 'percent_from_mv', side_effect=[80, 70, 60, 50]):
+            self.assertEqual(estimate.sample(12000, 0), 80)
+            self.assertEqual(estimate.sample(11900, 1), 80)
+            self.assertEqual(estimate.sample(11800, 2), 80)
+            self.assertEqual(estimate.sample(11700, 3), 50)
 
     def test_short_load_sags_do_not_change_the_display(self):
         for duration in (0.5, 2, 5, 10):
@@ -94,12 +112,14 @@ class RobotEstimatorTests(unittest.TestCase):
             result = estimate.sample(12250 if now < 40 else 11500, now)
         self.assertLessEqual(result, 54)
 
-    def test_invalid_raw_voltage_is_rejected_before_display_filtering(self):
+    def test_under_load_voltage_does_not_stop_display_filtering(self):
         estimate = worker.Estimate()
         for tick in range(120):
             estimate.sample(12250, tick / 4)
-        with self.assertRaisesRegex(RuntimeError, '9000 mV'):
-            estimate.sample(9000, 30)
+        self.assertEqual(estimate.sample(9271, 30), 88)
+        self.assertEqual(estimate.sample(9036, 30.25), 88)
+        with self.assertRaisesRegex(RuntimeError, '0 mV'):
+            estimate.sample(0, 30.5)
 
     def test_presence_frame_uses_only_the_reviewed_native_status_command(self):
         spec = importlib.util.spec_from_file_location('wire_for_presence', PATH.with_name('telemetry.py'))
@@ -123,6 +143,16 @@ class RobotEstimatorTests(unittest.TestCase):
             presence.update(record, 1.01)
         with self.assertRaisesRegex(RuntimeError, 'invalid native'):
             presence.update(struct.pack('<HhiBB', 12255, 230, 0, 0, 0), 0.1)
+        presence.sock.sendto.assert_not_called()
+
+    def test_presence_accepts_a_nonzero_load_sag(self):
+        presence = worker.BatteryPresence.__new__(worker.BatteryPresence)
+        presence.sock = Mock()
+        presence.last_voltage = 12250
+        presence.last_change = 0
+        presence.next_send = 10
+        presence.update(struct.pack('<HhiBB', 9036, 0, 0, 0, 0), 0.25)
+        self.assertEqual(presence.last_voltage, 9036)
         presence.sock.sendto.assert_not_called()
 
     def test_presence_guard_refuses_a_nonempty_battery_diagnostic_list(self):

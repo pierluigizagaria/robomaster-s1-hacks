@@ -37,6 +37,20 @@ class AutostartTests(unittest.TestCase):
         client.subscribe.assert_called_once_with()
         client.close.assert_called_once_with()
 
+    def test_source_priming_accepts_nonzero_voltage_below_old_cutoff(self):
+        import struct
+        client = Mock()
+        client.receive.side_effect = [
+            {'sender': 9, 'flags': 0, 'set': 0x48, 'command': 8,
+             'payload': bytes([0, 253]) + struct.pack('<HhiBB', v, 0, 0, 0, 0)}
+            for v in (9271, 9272, 9270)]
+        telemetry = Mock(MESSAGE=253)
+        telemetry.Client.return_value = client
+        clock = Mock()
+        clock.monotonic.return_value = 0
+        boot.prime_voltage(telemetry, clock)
+        client.close.assert_called_once_with()
+
     def test_source_priming_cleans_up_after_subscription_failure(self):
         client = Mock()
         client.subscribe.side_effect = RuntimeError('subscription refused')
@@ -68,6 +82,12 @@ class AutostartTests(unittest.TestCase):
             self.assertFalse(readiness.update(1, 'a', 12250 + tick % 2, tick / 4))
         self.assertTrue(readiness.update(1, 'a', 12250, 10))
         self.assertFalse(readiness.update(1, 'b', 12251, 10.25))
+
+    def test_lab_readiness_uses_a_short_fresh_window(self):
+        readiness = boot.SourceReadiness(seconds=2)
+        for tick in range(8):
+            self.assertFalse(readiness.update(1, 'a', 12250 + tick % 2, tick / 4))
+        self.assertTrue(readiness.update(1, 'a', 12250, 2))
 
     def test_pth_does_not_require_argv_during_python_36_site_startup(self):
         source = (ROOT / 's1_battery_autostart.pth').read_text()

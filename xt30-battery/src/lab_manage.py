@@ -96,6 +96,34 @@ def events():
     return result
 
 
+def show_last_sample(rows):
+    samples = [row for row in rows if row.get('event') in ('active', 'estimate')
+               and isinstance(row.get('voltage_mv'), int)
+               and isinstance(row.get('percent'), int)]
+    if samples:
+        sample = samples[-1]
+        age = sample.get('monotonic')
+        if isinstance(age, (int, float)):
+            age = ' | %d s ago' % max(0, int(time.monotonic() - age))
+        else:
+            age = ''
+        print('Last recorded sample: %.3f V | %d%% estimate%s' % (
+            sample['voltage_mv'] / 1000.0, sample['percent'], age), flush=True)
+
+
+def show_last_fault(rows):
+    failures = [row for row in rows if isinstance(row.get('event'), str)
+                and (row['event'].endswith('_error') or row['event'] == 'watchdog_failed')]
+    if failures:
+        fault = failures[-1]
+        detail = fault.get('error') or fault.get('reason') or fault.get('status')
+        voltage = fault.get('voltage_mv')
+        if isinstance(voltage, int):
+            detail = '%s | %d mV' % (detail, voltage) if detail is not None else '%d mV' % voltage
+        print('Last fault: %s%s' % (fault.get('event'),
+                                  ' | %s' % detail if detail is not None else ''), flush=True)
+
+
 def manual_worker():
     """Recognize an older temporary launcher by log identity AND command line."""
     active = [row for row in events() if row.get('event') == 'active']
@@ -138,36 +166,22 @@ def stop_manual_worker():
 def show_status():
     manifest = installation()
     if manifest is None:
-        print('XT30 mod: Not installed | Auto-start: OFF')
+        print('Battery checks: not verified', flush=True)
         if worker_locked():
-            print('A temporary estimator is still running; use DISABLE or UNINSTALL to stop it.')
+            print('Battery warnings: not verified', flush=True)
+            print('Battery percentage estimate: active', flush=True)
+            print('A temporary battery estimate is still active. Run DISABLE or UNINSTALL to stop it.', flush=True)
+        else:
+            print('Battery warnings: visible', flush=True)
+            print('Battery percentage estimate: inactive', flush=True)
         return
-    claim = manage.process_claim()
     checks = manifest.get('battery_checks')
-    checked = ''
     if checks in ({'authentication': 0, 'capacity': 0}, {'authentication': 1, 'capacity': 1}):
-        checked = ' | Battery checks (auth/capacity): %s (last verified)' % ('ON' if checks['authentication'] else 'OFF')
-    print('XT30 mod: installed | Auto-start: %s%s' % (
-        'ON' if os.path.isfile(manage.ROOT + '/enabled') else 'OFF', checked))
-    if not checked:
-        print('Battery checks: run INSTALL to verify authentication and capacity settings.')
-    rows = events()
-    active = [row for row in rows if row.get('event') == 'active']
-    if claim and active and active[-1].get('worker_pid') == claim['pid'] and \
-            active[-1].get('worker_started') == claim['started']:
-        samples = [row for row in rows if row.get('event') in ('active', 'estimate')]
-        latest = samples[-1]
-        print('Estimate: %s%% | %.3f V | Running' % (
-            latest['percent'], latest['voltage_mv'] / 1000.0))
-    elif claim:
-        print('Estimate: starting in background')
+        print('Battery checks: %s (last verified)' % (
+            'enabled' if checks['authentication'] else 'disabled'), flush=True)
     else:
-        print('Estimator: stopped | Run INSTALL to start it and enable auto-start.')
-        if rows:
-            last = rows[-1]
-            detail = last.get('error') or last.get('reason') or last.get('status')
-            print('Last event: %s%s' % (last.get('event', 'unknown'),
-                                       ' | %s' % detail if detail is not None else ''))
+        print('Battery checks: not verified', flush=True)
+    warning_status = None
     if 'warning_filter.py' in manifest['files']:
         import importlib.util
         spec = importlib.util.spec_from_file_location('s1_warning_status', manage.ROOT + '/warning_filter.py')
@@ -177,14 +191,34 @@ def show_status():
             probe = warning_module.WarningFilter(readonly=True)
             try:
                 state = probe.status()
-                print('App battery errors: authentication / missing information %s' % (
-                    'hidden' if state['filter_active'] else 'not hidden'))
+                warning_status = 'hidden' if state['filter_active'] else 'visible'
             finally:
                 probe.close()
         except (OSError, RuntimeError) as exc:
-            print('Warning filter: not verified | ' + str(exc))
+            warning_status = 'not verified | ' + str(exc)
     else:
-        print('This older installation has no battery warning filter. UNINSTALL then INSTALL this script to update.')
+        warning_status = 'unavailable | run UNINSTALL, then INSTALL, to update'
+    print('Battery warnings: ' + warning_status, flush=True)
+    claim = manage.process_claim()
+    rows = events()
+    active = [row for row in rows if row.get('event') == 'active']
+    if claim and active and active[-1].get('worker_pid') == claim['pid'] and \
+            active[-1].get('worker_started') == claim['started']:
+        print('Battery percentage estimate: active', flush=True)
+    elif claim:
+        print('Battery percentage estimate: starting', flush=True)
+    else:
+        print('Battery percentage estimate: inactive', flush=True)
+        if rows:
+            last = rows[-1]
+            detail = last.get('error') or last.get('reason') or last.get('status')
+            print('Last event: %s%s' % (last.get('event', 'unknown'),
+                                       ' | %s' % detail if detail is not None else ''), flush=True)
+    show_last_sample(rows)
+    show_last_fault(rows)
+    extras = manage.unexpected_installation_files(manifest)
+    if extras:
+        print('Uninstall blocked by extra files: ' + json.dumps(extras), flush=True)
 
 
 def start_installed():
@@ -200,10 +234,29 @@ def start_installed():
             return 'already running or starting'
         os.unlink(manage.CLAIM)
     with open(BOOT_LOG, 'ab', buffering=0) as log:
-        subprocess.Popen([PYTHON, '-S', manage.ROOT + '/boot.py', '--run'],
-                         stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                         close_fds=True, start_new_session=True)
+        job = subprocess.Popen([PYTHON, '-S', manage.ROOT + '/boot.py', '--run',
+                                '--startup-delay', '0.5', '--ready-window', '2',
+                                '--ready-timeout', '300'],
+                               stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                               close_fds=True, start_new_session=True)
+    wait_for_boot_claim(job)
     return 'starting'
+
+
+def wait_for_boot_claim(job, timeout=3):
+    """Confirm that the detached boot process is alive before Lab exits."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            claim = manage.process_claim()
+        except (OSError, ValueError):
+            claim = None  # Claim JSON may still be in the middle of its first write.
+        if claim and claim['pid'] == job.pid:
+            return claim
+        if job.poll() is not None:
+            raise RuntimeError('battery autostart exited before claiming startup; run STATUS')
+        time.sleep(0.1)
+    raise RuntimeError('battery autostart did not claim startup within %d seconds; run STATUS' % timeout)
 
 
 def perform(mode):
@@ -217,6 +270,7 @@ def perform(mode):
         return
     manifest = installation()
     if mode == 'INSTALL':
+        needs_settle = manifest is not None or worker_locked() or manage.process_claim() is not None
         STEP = 'preparing installation'
         manage.verify_stock()
         if manifest is not None:
@@ -229,19 +283,20 @@ def perform(mode):
         STEP = 'stopping the previous battery estimate and app error filter'
         stop_manual_worker()
         quiet_call(manage.main, 'disable', True)
-        time.sleep(7)
+        if needs_settle:
+            time.sleep(7)
         if worker_locked() or manage.process_claim():
             raise RuntimeError('previous battery background process is still stopping; installation retained')
         STEP = 'disabling and verifying battery checks'
         record_checks(manifest)
         quiet_call(controller_settings.set_mode, 'XT30')
         record_checks(manifest, {'authentication': 0, 'capacity': 0})
-        print('Battery checks: authentication OFF | capacity OFF (verified)', flush=True)
+        print('Battery checks: disabled', flush=True)
         STEP = 'enabling automatic startup'
         quiet_call(manage.main, 'enable', True)
-        startup = start_installed()
-        print('App battery errors: authentication / missing information | Filter: %s in background' % startup, flush=True)
-        print('INSTALL complete | Auto-start: ON | Battery percentage estimate: %s in background' % startup, flush=True)
+        start_installed()
+        print('Battery warnings: pending', flush=True)
+        print('Battery percentage estimate: starting after Lab', flush=True)
         return
     if manifest is not None and mode == 'UNINSTALL':
         quiet_call(manage.main, 'uninstall', False)  # Preflight unknown files before changes.
@@ -260,23 +315,22 @@ def perform(mode):
     time.sleep(7)  # Native presence timeout plus outgoing roster cadence.
     if worker_locked() or manage.process_claim():
         raise RuntimeError('battery background process is still stopping; installation retained')
-    print('Battery percentage estimate: OFF | App battery errors: normal reporting restored', flush=True)
     if mode == 'UNINSTALL':
         STEP = 'restoring and verifying original battery checks'
         manage.verify_stock()
         record_checks(manifest)
         quiet_call(controller_settings.set_mode, 'STOCK')
         record_checks(manifest, {'authentication': 1, 'capacity': 1})
-        print('Battery checks: authentication ON | capacity ON (verified)', flush=True)
         if manifest is not None:
             STEP = 'removing the installation'
             quiet_call(manage.main, 'uninstall', True)
     if mode == 'DISABLE':
-        print('DISABLE complete | Auto-start: OFF')
-        print('Battery checks: unchanged (UNINSTALL restores stock checks)')
+        print('Battery warnings: restored', flush=True)
+        print('Battery percentage estimate: disabled', flush=True)
     else:
-        print('UNINSTALL complete | Auto-start: OFF | Original DJI battery required')
-        print('Next: restart once to clear temporary telemetry settings and logs.')
+        print('Battery checks: restored', flush=True)
+        print('Battery warnings: restored', flush=True)
+        print('Battery percentage estimate: disabled', flush=True)
 
 
 def main(mode):

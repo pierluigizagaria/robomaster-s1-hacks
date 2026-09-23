@@ -55,10 +55,22 @@ def load(name, path):
     return module
 
 
+def embedded_lab_payload(source):
+    outer = {node.targets[0].id: ast.literal_eval(node.value)
+             for node in ast.parse(source).body
+             if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)}
+    payload = base64.b64decode(outer['PAYLOAD_B64']).decode('utf-8')
+    values = {node.targets[0].id: ast.literal_eval(node.value)
+              for node in ast.parse(payload).body
+              if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)}
+    return payload, values
+
+
 manage = load('lifecycle_manager', APP / 'src/manage.py')
 settings = Mock()
 with patch.dict(sys.modules, {'manage': manage, 'controller_settings': settings}):
     controller = load('lifecycle_controller', APP / 'src/lab_manage.py')
+WAIT_FOR_BOOT_CLAIM = controller.wait_for_boot_claim
 bundle = load('lifecycle_bundle', APP / 'src/build_bundle.py')
 
 
@@ -88,6 +100,8 @@ class LifecycleTests(unittest.TestCase):
         self.claim = self.stack.enter_context(patch.object(manage, 'process_claim', return_value=None))
         self.native = self.stack.enter_context(patch.object(manage, 'verify_native_references'))
         self.launch = self.stack.enter_context(patch.object(controller.subprocess, 'Popen'))
+        self.ready = self.stack.enter_context(patch.object(controller, 'wait_for_boot_claim',
+                                                         return_value={'pid': 42, 'started': 'start'}))
         self.settings = self.stack.enter_context(patch.object(controller, 'controller_settings'))
         self.stack.enter_context(patch.object(controller, 'worker_locked', return_value=False))
         self.stack.enter_context(patch.object(controller.time, 'sleep'))
@@ -98,6 +112,9 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(self.hook.is_file())
         initial = {p.name: p.read_bytes() for p in self.root.iterdir()}
         self.assertEqual(self.launch.call_args.args[0][:2], [controller.PYTHON, '-S'])
+        self.assertIn('--startup-delay', self.launch.call_args.args[0])
+        self.assertIn('--ready-window', self.launch.call_args.args[0])
+        self.assertEqual(self.launch.call_args.args[0][-2:], ['--ready-timeout', '300'])
         self.assertTrue(self.launch.call_args.kwargs['start_new_session'])
         controller.perform('INSTALL')
         self.assertEqual(self.launch.call_count, 2)
@@ -115,10 +132,19 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(self.stock.read_bytes(), b'original stock content')
         controller.perform('STATUS')
         controller.perform('UNINSTALL')
-        self.assertIn('Not installed', self.output.getvalue())
+        self.assertIn('Battery checks: not verified', self.output.getvalue())
+        self.assertIn('Battery warnings: visible', self.output.getvalue())
+        self.assertIn('Battery percentage estimate: inactive', self.output.getvalue())
         self.assertGreaterEqual(self.native.call_count, 5)
         self.settings.set_mode.assert_any_call('XT30')
         self.settings.set_mode.assert_any_call('STOCK')
+
+    def test_first_install_skips_old_worker_settling_delay(self):
+        controller.perform('INSTALL')
+        self.assertNotIn(7, [call.args[0] for call in controller.time.sleep.call_args_list])
+        controller.time.sleep.reset_mock()
+        controller.perform('INSTALL')
+        self.assertIn(7, [call.args[0] for call in controller.time.sleep.call_args_list])
 
     def test_failed_controller_setup_keeps_disabled_recovery_installation(self):
         self.settings.set_mode.side_effect = RuntimeError('parameter mismatch')
@@ -151,9 +177,34 @@ class LifecycleTests(unittest.TestCase):
         extra = self.root / 'unrelated.txt'
         extra.write_text('keep me')
         before = {p.name: p.read_bytes() for p in self.root.iterdir()}
-        with self.assertRaisesRegex(RuntimeError, 'unexpected installation files'):
+        controller.perform('STATUS')
+        self.assertIn('Uninstall blocked by extra files: ["unrelated.txt"]', self.output.getvalue())
+        with self.assertRaisesRegex(RuntimeError, 'unexpected installation files: .*unrelated.txt'):
             controller.perform('UNINSTALL')
         self.assertEqual(before, {p.name: p.read_bytes() for p in self.root.iterdir()})
+        self.assertTrue(self.hook.exists())
+
+    def test_uninstall_removes_only_managed_python_bytecode_cache(self):
+        controller.perform('INSTALL')
+        cache = self.root / '__pycache__'
+        cache.mkdir()
+        (cache / 'worker.cpython-36.pyc').write_bytes(b'cached worker')
+        (cache / 'warning_filter.cpython-36.opt-1.pyc').write_bytes(b'cached filter')
+        controller.perform('UNINSTALL')
+        self.assertFalse(self.root.exists())
+        self.assertFalse(self.hook.exists())
+
+    def test_uninstall_refuses_unknown_python_cache_entry(self):
+        controller.perform('INSTALL')
+        cache = self.root / '__pycache__'
+        cache.mkdir()
+        foreign = cache / 'other.cpython-36.pyc'
+        foreign.write_bytes(b'keep me')
+        controller.perform('STATUS')
+        self.assertIn('__pycache__/other.cpython-36.pyc', self.output.getvalue())
+        with self.assertRaisesRegex(RuntimeError, '__pycache__/other.cpython-36.pyc'):
+            controller.perform('UNINSTALL')
+        self.assertEqual(foreign.read_bytes(), b'keep me')
         self.assertTrue(self.hook.exists())
 
     def test_changed_install_is_neither_overwritten_nor_deleted(self):
@@ -174,6 +225,28 @@ class LifecycleTests(unittest.TestCase):
                 controller.perform('INSTALL')
             controller.perform('UNINSTALL')
         self.assertFalse(self.root.exists())
+
+    def test_install_waits_for_matching_boot_claim(self):
+        job = Mock(pid=42)
+        job.poll.return_value = None
+        claim = {'pid': 42, 'started': 'start'}
+        with patch.object(manage, 'process_claim', side_effect=[None, claim]), \
+                patch.object(controller.time, 'monotonic', side_effect=[0, 0, 0.25]):
+            self.assertEqual(WAIT_FOR_BOOT_CLAIM(job, timeout=2), claim)
+
+    def test_install_refuses_launcher_that_exits_before_claim(self):
+        job = Mock(pid=42)
+        job.poll.return_value = 1
+        with patch.object(controller.time, 'monotonic', side_effect=[0, 0]):
+            with self.assertRaisesRegex(RuntimeError, 'exited before claiming startup'):
+                WAIT_FOR_BOOT_CLAIM(job, timeout=1)
+
+    def test_install_does_not_claim_startup_without_boot_claim(self):
+        job = Mock(pid=42)
+        job.poll.return_value = None
+        with patch.object(controller.time, 'monotonic', side_effect=[0, 0, 1]):
+            with self.assertRaisesRegex(RuntimeError, 'did not claim startup'):
+                WAIT_FOR_BOOT_CLAIM(job, timeout=1)
 
     def test_failed_write_rolls_back_fresh_install(self):
         with patch.object(manage.os, 'fsync', side_effect=[None, OSError('disk full')]):
@@ -238,12 +311,13 @@ class EmbeddedLauncherTests(unittest.TestCase):
             compile(preprocess_lab_source(source), 'lab-python', 'exec')
 
     def test_all_payloads_are_python_36_compatible_and_match_sources(self):
-        values = {node.targets[0].id: ast.literal_eval(node.value)
-                  for node in ast.parse(self.source).body if isinstance(node, ast.Assign)}
-        packed = base64.b64decode(values['BUNDLE_B64'])
-        self.assertEqual(hashlib.sha256(packed).hexdigest(), values['BUNDLE_SHA256'])
+        payload, values = embedded_lab_payload(self.source)
+        packed = values['ARCHIVE_JSON'].encode('utf-8')
+        self.assertEqual(hashlib.sha256(packed).hexdigest(), values['PAYLOAD_SHA256'])
         files = json.loads(packed.decode('utf-8'))
         self.assertEqual(files, bundle.payload_files())
+        ast.parse(payload, feature_version=(3, 6))
+        ast.parse(base64.b64decode(values['RUNNER_B64']), feature_version=(3, 6))
         ast.parse(self.source, feature_version=(3, 6))
         ast.parse(preprocess_lab_source(self.source), feature_version=(3, 6))
         for name, data in files.items():
@@ -277,18 +351,18 @@ class EmbeddedLauncherTests(unittest.TestCase):
                 os.lseek(fd, previous, os.SEEK_SET)
 
         def launch(command, **kwargs):
-            extracted = Path(command[3]).parent
-            captures.append({p.name: p.read_text(encoding='utf-8') for p in extracted.iterdir()})
-            self.assertEqual(command[1:3], ['-B', '-S'])
-            self.assertEqual(command[-1], mode)
+            captures.append(json.loads(Path(command[-2]).read_bytes()))
+            self.assertEqual(command[1:4], ['-B', '-S', '-c'])
+            self.assertEqual(command[-3], mode)
             data = child_output if child_output is not None else (
                 'Controller finished.\nXT30_ACTION_DONE:' + mode + '\n').encode('ascii')
             os.write(kwargs['stdout'].fileno(), data)
             return job
 
-        original_mkdtemp = tempfile.mkdtemp
-        def make_folder(**kwargs):
-            return original_mkdtemp(prefix=kwargs['prefix'], dir=directory)
+        original_named = tempfile.NamedTemporaryFile
+        def make_archive(**kwargs):
+            kwargs['dir'] = directory
+            return original_named(**kwargs)
 
         # Match the Lab builtins needed by the entry point. In particular,
         # sorted/open/compile/set are unavailable in the user-code namespace.
@@ -296,19 +370,22 @@ class EmbeddedLauncherTests(unittest.TestCase):
         restricted = {name: getattr(builtins, name) for name in allowed}
         restricted['__import__'] = builtins.__import__
         with patch.dict(sys.modules, {'rm_define': module}), \
-                patch.object(tempfile, 'mkdtemp', side_effect=make_folder), \
+                patch.object(tempfile, 'NamedTemporaryFile', side_effect=make_archive), \
                 patch.object(subprocess, 'Popen', side_effect=launch) as launch_mock, \
                 patch.object(os, 'pread', side_effect=pread, create=True), \
                 patch.object(time, 'monotonic', clock), \
                 patch('sys.stdout', new_callable=io.StringIO) as output:
             selected = (source or self.source).replace("MODE = 'INSTALL'", "MODE = '%s'" % mode, 1)
             processed = preprocess_lab_source(selected)
-            namespace = {'__builtins__': restricted, 'time': types.SimpleNamespace(sleep=Mock())}
+            namespace = {'__builtins__': restricted, 'time': types.SimpleNamespace(sleep=Mock()),
+                         'stop': Mock(), 'robot_exit': Mock()}
             if expected_error is None:
                 exec(compile(processed, 'test-lab-program', 'exec'), namespace)
+                namespace['stop']()
             else:
                 with self.assertRaisesRegex(Exception, expected_error):
                     exec(compile(processed, 'test-lab-program', 'exec'), namespace)
+            namespace['robot_exit']()
         return captures, output.getvalue(), launch_mock, job
 
     def test_actual_generated_launcher_extracts_and_removes_its_whole_bundle(self):
@@ -324,22 +401,45 @@ class EmbeddedLauncherTests(unittest.TestCase):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
                 captures, output, launch, job = self.run_launcher(directory, mode=mode)
                 self.assertNotIn('ERROR:', output)
+                if mode == 'STATUS':
+                    self.assertTrue(output.startswith('XT30 Battery Mod status\n'))
+                    self.assertNotIn('STATUS OK', output)
+                else:
+                    self.assertTrue(output.endswith(mode + ' OK\n'))
                 self.assertEqual(captures, [bundle.payload_files()])
                 self.assertEqual(list(Path(directory).iterdir()), [])
                 launch.assert_called_once()
 
-    def test_corrupt_payload_is_rejected_before_writes_or_process_launch(self):
-        source = self.source.replace("BUNDLE_SHA256 = '", "BUNDLE_SHA256 = 'incorrect")
+    def test_payload_runner_rejects_a_bad_checksum(self):
+        runner = (APP / 'src/lab_payload_runner.py').read_text()
         with tempfile.TemporaryDirectory() as directory:
-            captures, output, launch, job = self.run_launcher(directory, source=source, expected_error='checksum failed')
-            self.assertIn('checksum failed', output)
-            self.assertEqual(list(Path(directory).iterdir()), [])
-            launch.assert_not_called()
+            archive = Path(directory) / 'payload.txt'
+            archive.write_bytes(b'{}')
+            result = subprocess.run([sys.executable, '-c', runner, 'STATUS', str(archive),
+                                     'incorrect'], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('checksum failed', result.stderr)
+            self.assertEqual(list(Path(directory).iterdir()), [archive])
+
+    def test_payload_runner_executes_and_cleans_a_valid_payload(self):
+        runner = (APP / 'src/lab_payload_runner.py').read_text()
+        files = {name: '' for name in bundle.payload_files()}
+        files['lab_manage.py'] = "import sys\nprint('XT30_ACTION_DONE:' + sys.argv[1])\n"
+        packed = json.dumps(files).encode('utf-8')
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / 'payload.txt'
+            archive.write_bytes(packed)
+            result = subprocess.run([sys.executable, '-B', '-S', '-c', runner, 'STATUS',
+                                     str(archive), hashlib.sha256(packed).hexdigest()],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, 'XT30_ACTION_DONE:STATUS\n')
 
     def test_timeout_is_not_reported_as_success_and_temporary_files_are_removed(self):
         with tempfile.TemporaryDirectory() as directory:
             captures, output, launch, job = self.run_launcher(directory, failure=True, expected_error='Action timed out')
-            self.assertIn('ERROR: Action timed out', output)
+            self.assertNotIn('ERROR:', output)
+            self.assertNotIn('INSTALL OK', output)
             self.assertEqual(list(Path(directory).iterdir()), [])
             job.terminate.assert_called_once()
             job.kill.assert_called_once()

@@ -65,10 +65,19 @@ namespace['robot_reset']()  # The original ready() calls this before injected us
 gimbal = namespace['gimbal_ctrl']
 gimbal.recenter.assert_called_once_with(90)
 gimbal.recenter.reset_mock()
-launcher = ast.parse((root / 'src/lab_launcher.template.py').read_text())
-replacement = [node for node in launcher.body if isinstance(node, ast.FunctionDef) and node.name == 'robot_reset']
+launcher = ast.parse((root / 'src/lab_bridge.py').read_text())
+replacement = [node for node in launcher.body if isinstance(node, ast.FunctionDef)
+               and node.name in ('robot_reset', 'stop', 'robot_exit')]
+namespace['_stock_stop'] = Mock()
+namespace['_stock_robot_exit'] = namespace['robot_exit']
+namespace['ACTION_COMPLETE'] = True
+namespace['FRAMEWORK_STOPPED'] = False
+namespace['MODE'] = 'INSTALL'
+namespace['print'] = Mock()
 exec(compile(ast.Module(body=replacement, type_ignores=[]), 'maintenance-reset', 'exec'), namespace)
+namespace['stop']()  # The stock framework calls stop() before entering finally.
 event = namespace['event']
+event.stop.side_effect = lambda: namespace['print'].assert_called_once_with('INSTALL OK')
 exec(compile(ast.Module(body=finalizer, type_ignores=[]), str(path), 'exec'), namespace)
 gimbal.recenter.assert_not_called()
 for name in ('gun_ctrl', 'chassis_ctrl', 'gimbal_ctrl', 'media_ctrl', 'vision_ctrl', 'armor_ctrl'):

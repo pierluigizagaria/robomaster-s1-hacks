@@ -35,14 +35,16 @@ try {
     }
 
     Invoke-Checked 'Python syntax' {
-        python -m compileall -q xt30-battery root-adb
+        python -B -c "from pathlib import Path; [compile(p.read_bytes(), str(p), 'exec') for root in ('xt30-battery', 'root-adb', 'lab-cli') for p in Path(root).rglob('*.py')]"
     }
     Invoke-Checked 'Generated XT30 Battery Mod Lab script' {
         python xt30-battery/build_lab_script.py --check
     }
 
+    # Includes test_s1_lab.py; the private firmware parser check skips cleanly
+    # when its optional local reference is absent.
     Invoke-Checked 'Hacks repository tests' {
-        python -m unittest discover -s tests -p 'test_*.py'
+        python -B -m unittest discover -s tests -p 'test_*.py'
     }
     Invoke-Checked 'Windows patch self-test' {
         powershell.exe -NoProfile -ExecutionPolicy Bypass -File `

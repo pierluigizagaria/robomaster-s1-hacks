@@ -1,6 +1,6 @@
 # Compatibility matrix
 
-Last updated: **16 September 2026**
+Last updated: **29 September 2026**
 
 ## XT30 Battery Mod
 
@@ -46,6 +46,58 @@ the app-bound copy of `3F/12` for chassis codes `C205` and `C209`.
 
 See [XT30 Battery Mod](../xt30-battery/README.md) for operation and reversal.
 
+## S1 Lab CLI
+
+| Component | Verified baseline / gate |
+|---|---|
+| Host | Windows, Python 3.10+ standard library; no DJI installation or DLL required |
+| Transport | Direct Python UDP Wi-Fi client and anonymous FTP; copied-folder hardware run verified on router Wi-Fi |
+| Runtime service gate | `DJI SCRATCH SYS`, version bytes `00 01 00 01`, displayed as `01.00.01.00`; unknown service/version refused before upload |
+| Discovery | Direct-mode candidate plus validated private IPv4 announcements on UDP 45678; explicit `--host` bypasses discovery |
+| Robot | S1 model `L1860`; native Lab and root ADB verified on 29 September 2026 |
+| Historical `ro.build.display.id` | `leadcore1860` |
+| Historical `ro.build.version.incremental` | `eng.jenkins.20221027.033121` |
+
+The service gate validates the observed Lab protocol, not a firmware image or
+commercial package version. Model/build properties are readback evidence, not
+runtime hash gates. Do not infer the root-ADB package baseline below from them.
+The native service version uses its four wire bytes; it is not the older
+bridge's version formatting and does not imply a firmware change.
+
+Observed with the DLL-free client: automatic router discovery, fresh status,
+upload/run/output/Idle, shell-redirected receipt reuse from a copied standalone
+folder, timeout with owned-project stop and a subsequent successful run. The
+root-ADB maintenance program passed in full, followed by explicit ADB root and
+`L1860` verification. The existing ADB server port was preserved. The framework
+can recenter the gimbal; ordinary projects remain in `/data/script/file/`.
+
+Earlier bridge-based tests covered intentional error cleanup and Lab use while
+ADB was unavailable during an AP/router/AP investigation. These remain separate
+historical evidence. The bridge is no longer a dependency. See the
+[verification details](../lab-cli/README.md#verification-and-limits) for source
+hashes, observed native fixes and the exact boundary of hardware coverage.
+
+The ADB program now has one maintained file in `root-adb/scripts/`. Its simplified
+command handler and output preserve the tested setup sequence and bounded root
+checks; failure, retry-limit and unique-address cases are verified offline.
+The cleanup has no additional hardware enable cycle. The duplicate and generator
+have been removed.
+S1 Lab is a standalone client with no bundled robot programs; use `run FILE`
+to execute a script from the relevant hack folder.
+
+Uploads now pass the validated project bytes directly to FTP in memory, with
+one completion check requiring the creation ACK and a subsequent Idle push.
+Exact byte equivalence, invalid-source rejection before connection, and failure
+cleanup are checked offline. This simplification has no new hardware run.
+
+Offline: 55 Lab tests (54 pass, one optional private-parser skip); 130 repository
+tests (129 pass, the same skip), plus syntax, the generated XT30 script and Windows
+patch self-test. The copied-folder test blocks vendor-library loading. A
+separate clean-PC installation and other host platforms have not been tested.
+Fragmented control messages are refused; long output and arbitrary programs
+need further validation. Native direct-mode hardware, Wi-Fi gestures, Quest
+controls, FPV and driving are not validated by the router Lab tests.
+
 ## Volatile root ADB
 
 | Robot package | Evidence | Support |
@@ -68,3 +120,17 @@ the assembly hash and all expected bytes must match.
 
 Unknown, partially patched, or vendor-updated assemblies are rejected. Restore
 the original before updating or reinstalling the application.
+
+## Android offline patch
+
+The source-only patcher accepts the original RoboMaster Android APK 1.2.0
+(versionCode 382), SHA-256
+`82c86a9e77c4dbf9fb4c18660b3d0fbbfd6095c4c4b0eb03e9b2c6aae13059a1`,
+and checks the ARM64/ARMv7 libraries and expected bytes before changing them.
+The optional emulator verifier requires the owner's original APK and Unicorn.
+Vendor APKs, extracted libraries and private audit files are not distributed.
+
+Historical evidence covers emulator checks and installation/startup of the
+privately signed revision on a Quest 3. Visual consent/menu acceptance, phone
+coverage and robot functions remain unverified. See the
+[Android guide](../android-offline/README.md) for exact hashes and limits.

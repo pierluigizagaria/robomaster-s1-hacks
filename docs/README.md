@@ -4,6 +4,8 @@ Documentation version: **2.0.0**
 
 | Document | Purpose |
 |---|---|
+| [S1 Lab CLI](../lab-cli/README.md) | DLL-free standalone folder and automatic discovery; terminal upload/run/stop and output for external Python programs |
+| [Root ADB Access](../root-adb/README.md) | Enable, verify and close temporary root access |
 | [XT30 Battery Mod](XT30-BATTERY.md) | Mechanism, modes, protocol, activation, and restoration |
 | [Safety](SAFETY.md) | Electrical, motion, battery, root-ADB, and desktop-patch safeguards |
 | [Firmware compatibility](FIRMWARE-COMPATIBILITY.md) | Exact tested robot and Windows targets |

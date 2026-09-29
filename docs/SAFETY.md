@@ -65,6 +65,31 @@ once after successful removal; a working original smart battery is then required
 for normal use. Reboot alone does not undo the persistent bypass settings.
 States with the roll-over check disabled are refused by this product.
 
+## Terminal Lab programs
+
+- Keep the robot stationary with the gimbal clear. The stock framework recenters
+  the gimbal at start and exit, including print-only and ADB maintenance scripts.
+- Check Lab status and leave an unrelated running program untouched. The
+  terminal client stops only the project matching its receipt.
+- Keep the original GUI and other Lab clients closed. A port conflict is a
+  reason to inspect the existing client, not to kill processes indiscriminately.
+- The standalone client requires Python, without a DJI DLL. It validates the
+  Scratch service before uploads. Automatic discovery accepts only matching
+  private-address announcements; use a trusted network and explicit `--host`
+  when selection is ambiguous. Receipts keep their original target address.
+  A connection timeout does not confirm Idle.
+- Ctrl+C, timeout and a closed output pipe trigger owned-program cleanup. If
+  the link is lost or cleanup cannot be confirmed, inspect status after
+  reconnecting; do not assume the program completed.
+- Uploads create ordinary Lab projects in `/data/script/file/`. They do not
+  flash firmware or install an automatic startup task. Run only programs whose
+  actions you understand; the CLI does not make arbitrary Python code safe.
+- The client checks source before connecting and prepares uploads in memory.
+  No temporary host file is needed; the ordinary robot project writes remain.
+
+See [S1 Lab CLI](../lab-cli/README.md) for standard terminal streams and the
+documented live tests.
+
 ## Root ADB
 
 - Root ADB over TCP may allow any device on the same network segment to control
@@ -73,10 +98,18 @@ States with the roll-over check disabled are refused by this product.
 - Keep the chassis unable to move while using a root shell. A mistyped command
   can stop safety services, damage persistent data, or expose calibration and
   identity material.
-- Fully reboot the robot immediately after maintenance. Disconnecting the host
-  does not close the listener.
+- Manually perform a full power cycle after maintenance, then verify that the
+  listener is closed. Disconnecting the host does not close it. A software-only
+  reboot can leave the motion controller unavailable in an XT30 setup; agents
+  must not reboot autonomously as a substitute for clean session teardown.
 - Never enable root ADB during an update, and do not publish raw logs or dumps
   before removing device identifiers, network data, and credentials.
+- The single supplied ADB program checks daemon identity through `/proc` with bounded
+  retries and rejects an unexpected TCP port. Setup errors abort execution;
+  optional address readback may fail without invalidating a confirmed daemon.
+  Confirm the actual connection separately with `adb -s ADDRESS:5555`
+  and preserve any custom ADB server port; a ready marker alone is not evidence
+  of a successful host handshake.
 
 ## Windows application patch
 

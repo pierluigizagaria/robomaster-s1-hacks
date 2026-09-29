@@ -12,7 +12,7 @@ from urllib.parse import unquote
 ROOT = Path(__file__).resolve().parents[1]
 LINK_RE = re.compile(r"(?<!!)\[[^]]+\]\(([^)]+)\)")
 ABSOLUTE_USER_PATH_RE = re.compile(r"[A-Za-z]:\\Users\\[^\\\s]+", re.IGNORECASE)
-IGNORED_PARTS = {".git", ".pio", "__pycache__", ".pytest_cache"}
+IGNORED_PARTS = {".git", ".pio", "__pycache__", ".pytest_cache", "tmp"}
 
 
 def public_files() -> list[Path]:
@@ -35,6 +35,14 @@ class PublicRepositoryTests(unittest.TestCase):
             "xt30-battery/README.md",
             "xt30-battery/src/worker.py",
             "xt30-battery/scripts/xt30_battery.py",
+            "AGENTS.md",
+            "lab-cli/README.md",
+            "lab-cli/s1-lab.cmd",
+            "lab-cli/scripts/s1_lab.py",
+            "lab-cli/scripts/s1_native.py",
+            "lab-cli/scripts/s1_wire.py",
+            "lab-cli/scripts/s1_discovery.py",
+            "s1-lab.cmd",
             "root-adb/README.md",
             "root-adb/scripts/enable_root_adb.py",
             "windows-offline/README.md",
@@ -103,7 +111,7 @@ class PublicRepositoryTests(unittest.TestCase):
         self.assertIn("/system/bin/adb_en.sh", root_adb)
         self.assertIn("service.adb.tcp.port", root_adb)
         self.assertIn("adbd_runs_as_root", root_adb)
-        self.assertIn("REBOOT THE ROBOT", root_adb)
+        self.assertIn("POWER-CYCLE THE ROBOT", root_adb)
         for forbidden in ("mount -o remount", "dd if=", "flash_image", "recovery --update"):
             self.assertNotIn(forbidden, root_adb)
 

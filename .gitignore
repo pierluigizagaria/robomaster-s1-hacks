@@ -5,6 +5,8 @@
 *.pyc
 .uv-cache/
 .venv/
+# Keep legacy private vendor files out of Git; the CLI no longer loads them.
+lab-cli/bridge/
 tmp/
 
 # Generated captures and binaries

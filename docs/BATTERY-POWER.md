@@ -25,7 +25,12 @@ The battery configuration tested for this project is a **3S1P pack of Samsung
 INR18650-30Q high-discharge cells** with a **3S 25A BMS with balancing**,
 connected to the RoboMaster S1 through XT30. The
 [battery hardware guide](../xt30-battery/docs/HARDWARE-SETUP.md) includes
-assembly photographs, component details and the AliExpress BMS reference.
+seven assembly photographs and the BMS product image, the BMS terminal map,
+component references and the MakerWorld print profile. The owner confirms a 3S/12.6 V USB-C charger
+connected to `P+`/`P-`, with a switch interrupting only XT30 positive.
+The charger stays connected when the robot switch is off; this is not complete
+pack isolation. These construction details do not establish charge-current,
+temperature or protection-trip performance.
 
 Use cells with a suitable discharge rating; capacity in mAh alone does not
 establish suitability for motor loads. The board's advertised 25A rating is

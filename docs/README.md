@@ -10,6 +10,7 @@ Documentation version: **2.0.0**
 | [Safety](SAFETY.md) | Electrical, motion, battery, root-ADB, and desktop-patch safeguards |
 | [Firmware compatibility](FIRMWARE-COMPATIBILITY.md) | Exact tested robot and Windows targets |
 | [Battery power and BMS](BATTERY-POWER.md) | Mandatory independent cell protection, electrical ratings, regeneration and fire hazards |
+| [XT30 battery hardware](../xt30-battery/docs/HARDWARE-SETUP.md) | All construction photographs, BMS/USB-C wiring, component references and MakerWorld print profile |
 
 The root [changelog](../CHANGELOG.md) records releases. The canonical version
 is stored in [`VERSION`](../VERSION).

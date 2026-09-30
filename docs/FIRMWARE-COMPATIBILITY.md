@@ -1,6 +1,6 @@
 # Compatibility matrix
 
-Last updated: **29 September 2026**
+Last updated: **30 September 2026**
 
 ## XT30 Battery Mod
 
@@ -43,6 +43,9 @@ the app-bound copy of `3F/12` for chassis codes `C205` and `C209`.
   hardware acceptance.
 - BMS behavior, wiring, cell ratings and regeneration are external hardware
   requirements, not properties guaranteed by passing the software checks.
+  The [hardware guide](../xt30-battery/docs/HARDWARE-SETUP.md) adds construction
+  photographs and owner-confirmed USB-C/switch wiring, without new electrical
+  acceptance results or broader firmware compatibility.
 
 See [XT30 Battery Mod](../xt30-battery/README.md) for operation and reversal.
 

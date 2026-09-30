@@ -55,13 +55,20 @@ remain protected independently of the robot and this script.
 The battery setup tested for this project uses **three Samsung INR18650-30Q
 cells in series (3S1P)**, a **3S 25A BMS with balancing**, and an **XT30
 connection** to the RoboMaster S1.
+The photographed assembly also includes a **3S / 12.6 V USB-C charger**,
+**three-port Wago junctions** and a panel switch on **XT30 positive only**.
+The charger remains connected to the BMS when that switch is off.
 
-| Samsung high-discharge cells | Installed balancing BMS | XT30 on the robot |
-|---|---|---|
-| [<img src="docs/images/samsung-inr18650-30q-cells.jpg" width="220" alt="Three Samsung INR18650-30Q cells in the battery holder">](docs/images/samsung-inr18650-30q-cells.jpg) | [<img src="docs/images/bms-3s-25a-balanced-installed.jpg" width="220" alt="3S balancing BMS mounted on the battery holder">](docs/images/bms-3s-25a-balanced-installed.jpg) | [<img src="docs/images/xt30-connection-robomaster-s1.jpg" width="220" alt="XT30 battery power connection on the RoboMaster S1 motion controller">](docs/images/xt30-connection-robomaster-s1.jpg) |
+Click any image for a larger copy. All eight views preserve their proportions.
 
-See the [battery hardware guide](docs/HARDWARE-SETUP.md) for component
-details, the **AliExpress reference for the 3S 25A balanced BMS**, and the
+| Samsung cells | BMS on holder | BMS reference | XT30 on robot |
+|---|---|---|---|
+| [<img src="docs/images/samsung-inr18650-30q-cells.jpg" height="180" alt="Three Samsung INR18650-30Q cells in the battery holder">](docs/images/samsung-inr18650-30q-cells.jpg) | [<img src="docs/images/bms-3s-25a-balanced-installed.jpg" height="180" alt="3S balancing BMS mounted on the battery holder">](docs/images/bms-3s-25a-balanced-installed.jpg) | [<img src="docs/images/bms-3s-25a-balanced-product.png" height="180" alt="Product reference for the 3S 25A Balance BMS">](docs/images/bms-3s-25a-balanced-product.png) | [<img src="docs/images/xt30-connection-robomaster-s1.jpg" height="180" alt="XT30 battery power connection on the RoboMaster S1 motion controller">](docs/images/xt30-connection-robomaster-s1.jpg) |
+| **BMS in chassis** | **Holder and wiring** | **USB-C panel** | **Inside panel** |
+| [<img src="docs/images/bms-3s-chassis-installed.jpg" height="180" alt="Balancing BMS secured above the holder in the S1 chassis">](docs/images/bms-3s-chassis-installed.jpg) | [<img src="docs/images/battery-holder-chassis-wiring.jpg" height="180" alt="Removed three-cell holder and power wiring in the open chassis">](docs/images/battery-holder-chassis-wiring.jpg) | [<img src="docs/images/usb-c-charge-panel.jpg" height="180" alt="Installed rocker switch, USB-C cable and red indicator">](docs/images/usb-c-charge-panel.jpg) | [<img src="docs/images/usb-c-charger-panel-inside.jpg" height="180" alt="USB-C module and switch terminals inside the printed panel">](docs/images/usb-c-charger-panel-inside.jpg) |
+
+See the [battery hardware guide](docs/HARDWARE-SETUP.md) for the **wiring map**,
+component details, **AliExpress references and the MakerWorld print profile**, and the
 distinction between the board's advertised current and the cells' discharge
 rating. Software validation is tracked separately under
 [Compatibility and validation](#compatibility-and-validation).

@@ -37,6 +37,12 @@ low charge. A plausible percentage is not evidence that the cells are safe.
 
 ## Battery and charging
 
+- In the [photographed XT30 assembly](../xt30-battery/docs/HARDWARE-SETUP.md),
+  the rocker switch opens only the robot's positive lead. The USB-C charger
+  remains connected to the BMS's `P+`/`P-` terminals. Switch-off does not isolate
+  the pack or make its terminals safe for wiring work. Disconnect the pack
+  and USB source before changing connections; keep charge/discharge paths
+  behind the independent BMS.
 - Do not open, puncture, bridge, recell, or bypass the FETs/BMS of a lithium
   pack unless the work is performed by a qualified battery professional.
 - Do not charge an aftermarket pack with the DJI `E1C28` charger without

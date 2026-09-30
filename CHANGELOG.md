@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Expanded the XT30 hardware guide and README with seven assembly photographs
+  and the BMS product image, a BMS terminal map, USB-C charging and the switch
+  on XT30 positive only. Added owner-supplied AliExpress/MakerWorld references
+  and three-port Wago junction details; removed image metadata and identifying
+  labels/background content. Construction evidence does not extend electrical
+  qualification or software/hardware acceptance coverage.
 - Removed the extra output/redirection and DJI-app footer from S1 Lab help.
 - Added the Android offline patcher and private emulator verifier as source
   tools, gated to the documented original APK and library hashes. APKs,

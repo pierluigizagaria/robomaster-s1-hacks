@@ -1,7 +1,5 @@
 # RoboMaster S1 Hacks
 
-**Keep your RoboMaster S1 running.**
-
 Practical mods and maintenance tools for the DJI RoboMaster S1: alternative
 battery power, local robot access and offline app use. Each tool includes
 compatibility checks, setup instructions and a way to restore the original state.
@@ -87,4 +85,4 @@ Report security or hardware-safety issues using the [security policy](SECURITY.m
 
 Source code and original documentation are released under the [MIT License](LICENSE).
 This independent project is not affiliated with or endorsed by DJI. RoboMaster
-and DJI are trademarks of their respective owner.
+and DJI are trademarks.

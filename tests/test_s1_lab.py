@@ -135,7 +135,7 @@ class LabTests(unittest.TestCase):
         client.exchange.assert_not_called()
 
     def test_memory_upload_preserves_transfer_bytes_and_confirms_receipt(self):
-        self.source.write_text('def start():\n    print("è < & >")\n', encoding='utf-8')
+        self.source.write_text('def start():\n    print("café < & >")\n', encoding='utf-8')
         data, draft = lab.prepare_upload(self.source, 'hello')
         # Compare the old UTF-8 file route with the new memory route, including
         # host newline conversion and XML escaping.

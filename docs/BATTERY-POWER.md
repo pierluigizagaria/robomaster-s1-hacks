@@ -26,8 +26,9 @@ INR18650-30Q high-discharge cells** with a **3S 25A BMS with balancing**,
 connected to the RoboMaster S1 through XT30. The
 [battery hardware guide](../xt30-battery/docs/HARDWARE-SETUP.md) includes
 seven assembly photographs and the BMS product image, the BMS terminal map,
-component references and the MakerWorld print profile. The owner confirms a 3S/12.6 V USB-C charger
-connected to `P+`/`P-`, with a switch interrupting only XT30 positive.
+component references and the MakerWorld print profile. The reported wiring
+uses a 3S/12.6 V USB-C charger connected to `P+`/`P-`, with a switch
+interrupting only XT30 positive.
 The charger stays connected when the robot switch is off; this is not complete
 pack isolation. These construction details do not establish charge-current,
 temperature or protection-trip performance.
@@ -102,7 +103,7 @@ Its smoothing deliberately delays displayed changes, including a real sustained
 discharge. A watchdog restoring native telemetry can leave a 0% display while
 XT30 motor-gate settings remain active.
 
-The BMS, fuse, electrical design and operator must therefore remain effective
+The BMS, fuse, electrical design and operating procedures must remain effective
 when the script stops, freezes, reports an incorrect percentage or is absent.
 Even a BMS cannot make incorrect wiring, unsuitable cells or an unvalidated
 regenerative path safe. See [Safety](SAFETY.md) for motion precautions and the

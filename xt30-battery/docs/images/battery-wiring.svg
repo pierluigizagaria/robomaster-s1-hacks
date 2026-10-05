@@ -18,7 +18,7 @@
   </style>
   <rect width="1040" height="860" rx="16" fill="#ffffff"/>
   <text x="30" y="40" class="heading">RoboMaster S1 · 3S battery wiring</text>
-  <text x="30" y="68" class="small">Functional map · charger, Wago junctions and switch placement confirmed by the owner</text>
+  <text x="30" y="68" class="small">Functional map · reported charger, Wago junctions and switch placement</text>
   <text x="30" y="103" class="section">1. Cell stack and BMS taps</text>
 
   <rect x="110" y="140" width="180" height="64" rx="10" class="cell"/>

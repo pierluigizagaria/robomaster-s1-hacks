@@ -1,6 +1,6 @@
 # XT30 battery hardware
 
-Last updated: **2026-09-30**.
+Last updated: **2026-10-05**.
 
 This battery setup has been tested on the **RoboMaster S1**. It combines
 Samsung high-discharge cells, a balancing BMS and an XT30 power connection.
@@ -22,8 +22,8 @@ content; the original photographs are not included.
 | BMS | **3S 25A with balancing**, sold as **3S 25A BMS Balance**; the installed PCB is marked **HW-380 V0.0.4** |
 | Robot connection | Battery power through **XT30**; no added battery data-bus connection |
 | Cell holder | Three-cell 18650 holder with connections to both ends and both intermediate series nodes |
-| Power switch | Panel rocker switch; the owner confirms it interrupts **only the positive lead to XT30** |
-| Charging panel | **3S / 12.6 V USB-C charger** connected to BMS `P+`/`P-`, confirmed by the owner; indicator LED and printed mounting panel |
+| Power switch | Panel rocker switch; reported to interrupt **only the positive lead to XT30** |
+| Charging panel | Reported **3S / 12.6 V USB-C charger** connection to BMS `P+`/`P-`; indicator LED and printed mounting panel |
 | Power junctions | **Two three-port Wago connectors**, one for positive and one for negative |
 
 Pack voltage and nominal capacity follow from the cell specifications. The
@@ -112,9 +112,9 @@ sequence and charge-port arrangement from its documentation.
 and a red wire reaches `B1`. Follow pad labels and measured polarity, including
 at XT30; do not copy the colors as a polarity convention.
 
-The owner confirms the following external connections. Each Wago joins three
-wires at **one electrical node**; the two connectors keep positive and negative
-separate. The port numbers below are illustrative, not physical positions:
+The following external connections are reported for this assembly. Each Wago
+joins three wires at **one electrical node**; the two connectors keep positive
+and negative separate. The port numbers below are illustrative, not physical positions:
 
 | Junction | Port 1 | Port 2 | Port 3 |
 |---|---|---|---|
@@ -140,7 +140,7 @@ BMS P- ---- Wago (-) -----+
 USB supply ---- USB-C charge module (3S / 12.6 V)
 ```
 
-*Owner-confirmed connection map. A source fuse is required by the complete
+*Reported connection map. A source fuse is required by the complete
 design, but its presence, value and location are not documented, so it is not
 shown as an observed component.*
 
@@ -161,7 +161,7 @@ insulation.*
 <a href="images/battery-holder-chassis-wiring.jpg"><img src="images/battery-holder-chassis-wiring.jpg" height="360" alt="Three-cell holder outside the open S1 chassis, showing the added power wires and gray cable junctions"></a>
 
 *Holder removed from the bay to show cable routing and the three-port Wago
-junctions identified by the owner. The exact connector series, wire range and
+junctions reported for this assembly. The exact connector series, wire range and
 current rating are not documented. Keep added leads clear of wheels, moving
 parts and closing edges.*
 
@@ -175,8 +175,8 @@ parts and closing edges.*
 its meaning depends on the exact module and is not a verified full/charging
 status indication.*
 
-The owner confirms that the USB-C module is the **3S / 12.6 V** version and
-its two pack-output wires connect to the BMS's `P+`/`P-` through the Wago
+The USB-C module is reported as the **3S / 12.6 V** version, with its two
+pack-output wires connected to the BMS's `P+`/`P-` through the Wago
 junctions. The switch controls the XT30 positive branch only. **Switching the
 robot off does not isolate the cell pack or the charging branch.** Disconnect
 both the pack and USB source before changing wiring.
@@ -190,10 +190,10 @@ functions.
 
 ## Components and AliExpress references
 
-The BMS link is the existing reference for this assembly. The owner supplied
-the exact charger and switch links and the MakerWorld print reference.
-Those pages could not be independently inspected on 2026-09-30; the links
-and selected 3S configuration are recorded as owner-provided references.
+The BMS, charger and switch links and the MakerWorld print profile are
+documented references for this assembly. The charger, switch and MakerWorld
+pages could not be independently inspected on 2026-09-30; those links and the
+selected 3S configuration remain unverified assembly references.
 For remaining parts, **AliExpress search links are search aids**, not exact
 purchase records or verified substitutes. Photographs above cover every
 supplied view.
@@ -203,13 +203,13 @@ supplied view.
 | Samsung INR18650-30Q cells | 3; exact high-discharge model with traceable authenticity and ratings | [AliExpress search: INR18650-30Q](https://www.aliexpress.com/w/wholesale-samsung-inr18650-30q.html) — exact seller not supplied |
 | 3S balancing BMS | 1; **3S / 25A / Balance**, HW-380 V0.0.4 in the photographs | [AliExpress item 1005006427770082](https://it.aliexpress.com/item/1005006427770082.html) |
 | 18650 holder | 1; three series cells with accessible intermediate taps, verified contact ratings | [AliExpress search: 3S 18650 holder](https://www.aliexpress.com/w/wholesale-3s-18650-battery-holder.html) — exact part not supplied |
-| USB-C charge module | 1; owner-confirmed **3S / 12.6 V** version | [AliExpress item 1005007170943596](https://it.aliexpress.com/item/1005007170943596.html) — owner-supplied |
-| Rocker switch | 1; two-terminal ON/OFF, correct panel fit and DC switching rating | [AliExpress item 1005009143297950](https://www.aliexpress.com/item/1005009143297950.html) — owner-supplied |
+| USB-C charge module | 1; reported **3S / 12.6 V** version | [AliExpress item 1005007170943596](https://it.aliexpress.com/item/1005007170943596.html) — unverified assembly reference |
+| Rocker switch | 1; two-terminal ON/OFF, correct panel fit and DC switching rating | [AliExpress item 1005009143297950](https://www.aliexpress.com/item/1005009143297950.html) — unverified assembly reference |
 | XT30 power connector / lead | Matching connection to the S1, measured polarity | [AliExpress search: XT30 connector](https://www.aliexpress.com/w/wholesale-xt30-connector.html) — exact source not supplied |
 | Three-port Wago junctions | 2; separate positive/negative nodes; exact series and ratings to establish | [AliExpress search: Wago 3-port connector](https://www.aliexpress.com/w/wholesale-wago-3-pin-connector.html) — exact source not supplied |
 | Source fuse and holder | Required near the source; value/location not documented in the photographed assembly | [AliExpress search: inline DC fuse holder](https://www.aliexpress.com/w/wholesale-inline-dc-fuse-holder.html) — select for the complete design |
 | Wire and insulation | Wire gauge, temperature/current rating and strain relief to establish | [AliExpress search: silicone wire](https://www.aliexpress.com/w/wholesale-silicone-wire.html), [heat-shrink tubing](https://www.aliexpress.com/w/wholesale-heat-shrink-tubing.html) — exact sources not supplied |
-| Printed panel and mounts | Printed parts for this mod; use the linked model/profile for fit details | [MakerWorld: DJI RoboMaster S1 battery mod, profile 3799310](https://makerworld.com/it/models/3343753-dji-robomaster-s1-battery-mod#profileId-3799310) — owner-supplied print reference |
+| Printed panel and mounts | Printed parts for this mod; use the linked model/profile for fit details | [MakerWorld: DJI RoboMaster S1 battery mod, profile 3799310](https://makerworld.com/it/models/3343753-dji-robomaster-s1-battery-mod#profileId-3799310) — unverified assembly print reference |
 
 Marketplace pages may offer different variants or change over time. Select
 the documented version and verify the actual part's specifications rather
@@ -231,7 +231,7 @@ requirements for a fuse, physical disconnect, charging and regenerative braking.
 ## Validation status
 
 This battery configuration has been tested in use. The new photographs and
-owner-confirmed charger, Wago and switch connections are construction evidence.
+reported charger, Wago and switch connections are construction evidence.
 Module ratings, charge termination and simultaneous charge/load behavior are
 not independently validated. Load-current, temperature
 and protection-trip measurements are not documented, so it does not define a

@@ -1,7 +1,7 @@
 # Contributing
 
-RoboMaster S1 Hacks accepts focused changes that help owners maintain
-their robots after vendor services, applications, or consumables become
+RoboMaster S1 Hacks accepts focused changes that support robot maintenance
+after vendor services, applications, or consumables become
 unavailable.
 
 ## Scope

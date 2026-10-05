@@ -1,7 +1,7 @@
 # XT30 Battery Mod source
 
-Owners use the generated [Lab script](../scripts/xt30_battery.py); they do not
-copy individual source files or run a PC installer.
+Installation uses the generated [Lab script](../scripts/xt30_battery.py),
+without copying individual source files or running a PC installer.
 
 | File | Role |
 |---|---|
@@ -29,8 +29,8 @@ python -m unittest discover -s xt30-battery/tests -p 'test_*.py'
 
 Robot code targets Python 3.6; generation/tests use current desktop Python.
 No vendor executable or private capture is required to build or test the product.
-The bundle contains the listed files and their hashes. Developer modules with command-line
-interfaces remain optional; the owner workflow is entirely in the Lab script.
+The bundle contains the listed files and their hashes. Developer modules with
+command-line interfaces remain optional; all lifecycle operations use the Lab script.
 
 `lab_manage.py` presents compact lifecycle summaries for the whole XT30 mod.
 Routine helper stdout is suppressed only in the Lab orchestrator; standalone
@@ -56,9 +56,9 @@ insertion. The optional `tests/check_private_lab_framework.py` accepts a local
 original `script_framework.py` path and checks the exact private DSP parser,
 source transformations and finalizer without distributing vendor source.
 
-The bundle now also carries 384 bytes of **our own** native ARM code encoded
-in a Python source file. To change it, run `build_warning_hook.py --toolchain`
+The bundle also carries 384 bytes of native ARM code developed for this project,
+encoded in a Python source file. To change it, run `build_warning_hook.py --toolchain`
 with the NDK LLVM `bin` directory, then regenerate the Lab script. `--check`
 verifies that the native source still matches the embedded bytes. Native tests
 require Unicorn; rebuilding requires pyelftools and NDK Clang. None of these
-desktop tools are needed by the robot or the owner. See [details](WARNING_FILTER.md).
+desktop tools are needed to run the generated Lab script. See [details](WARNING_FILTER.md).

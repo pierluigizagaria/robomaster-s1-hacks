@@ -2,7 +2,7 @@
 
 This tool keeps one known installation of the RoboMaster Windows application
 usable when the remote account/login flow no longer completes. It patches only
-the owner's local `Assembly-CSharp.dll`; no DJI binary is distributed.
+the local `Assembly-CSharp.dll`; no DJI binary is distributed.
 
 ## Compatibility
 

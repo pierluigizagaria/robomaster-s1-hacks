@@ -1,4 +1,4 @@
-"""Create a private, unsigned offline copy of the owner's RoboMaster 1.2.0 APK.
+"""Create a private, unsigned offline copy of a local RoboMaster 1.2.0 APK.
 
 Only the exact APK below is supported. Sign the result with Android build-tools.
 No vendor binary, credential, account flag, or privacy acceptance is supplied.
@@ -74,7 +74,7 @@ def patch_definitions(arch):
     h = bytes.fromhex
     if arch == "arm64-v8a":
         nop = h("1f2003d5")
-        # Startup chooses the existing privacy scene until the owner accepts it.
+        # Startup chooses the existing privacy scene until consent is accepted.
         startup = h("e0031faa") + branch(arch, 0xAD095C, 0xACEFD8, True) + h("e803002a") + nop * 3
         # Preserve SP/LR; poll consent, then use the existing menu transition.
         consent = h("fd7bbfa9e0031faa") + branch(arch, 0xAD0C44, 0xACEFD8, True)

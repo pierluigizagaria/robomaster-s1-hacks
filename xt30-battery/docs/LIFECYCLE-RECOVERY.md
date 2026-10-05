@@ -56,15 +56,15 @@ per-line flushing. A separate failure screenshot also showed only generic
 and includes it in the propagated Lab exception. These are reporting changes
 only; no controller setting or installed runtime behavior changed.
 
-In the following real INSTALL run, the user saw `INSTALL OK` and reported that
-Lab then remained in `Running` for an estimated 20–30 seconds before finishing. By
+In a subsequent hardware INSTALL run, the reported sequence was `INSTALL OK`,
+then `Running` for an estimated 20–30 seconds before completion. By
 the time `INSTALL OK` is emitted, controller exit, the private completion
 record and launcher temporary-file cleanup have all returned. The remaining
 tail is therefore inside DJI's stock finalization and is consistent with a slow,
-terminating finalizer rather than an installer hang. The requested `INSTALL OK`
+terminating finalizer rather than an installer hang. The `INSTALL OK`
 wording remains unchanged.
 
-Follow-up from the user at 22:32:48 on 16 September: UNINSTALL reports native
+Reported observation at 22:32:48 on 16 September: UNINSTALL reports native
 app error reporting restored, authentication/capacity ON verified, removal
 complete and auto-start OFF, but the screenshot still shows `Running--`.
 This does **not** establish successful Lab termination; the earlier changes
@@ -83,10 +83,10 @@ maintenance mode does not launch another background worker.
 ## Report and findings
 
 Follow-up at 22:41:18 and 22:41:36: only the INSTALL introduction appeared,
-followed by `Execution Complete`. The user confirmed two separate Run presses
-without Stop. The app's saved DSP project from 22:41:18 decodes to the exact
+followed by `Execution Complete`. Two separate Run presses without Stop were
+reported. The app's saved DSP project from 22:41:18 decodes to the exact
 complete generated script at commit `7eab199`; no truncated paste was found.
-The user then reported another run succeeded, after the earlier issue following
+Another run was reported to succeed after the earlier issue following
 UNINSTALL. This is a reported successful retry, not a diagnosis of the transient
 failure or full hardware acceptance. No robot output/stack from those runs is
 available to establish why the result rows were absent.
@@ -117,7 +117,7 @@ completion/error paths pass. No new private-framework or robot run was made.
 Current generated SHA-256:
 `E1E675B23FB68AEA9FC0E02BA8D08E7982189AF46F9D45B45D7C3BE2ED027AE2`.
 
-The user reported UNINSTALL remaining in `Running--`. A later INSTALL screenshot
+UNINSTALL was reported to remain in `Running--`. A later INSTALL screenshot
 showed verified battery checks and `INSTALL complete` followed by `Running--`.
 This proves that the installer had printed its result before Lab finished;
 it does not identify which finalization call was waiting on that run.
@@ -144,7 +144,7 @@ The initial `ready()`/robot initialization has already run before user code.
 
 ## Follow-up: Lab syntax error before startup
 
-The user then reported `SyntaxError: EOL while scanning string literal` at
+`SyntaxError: EOL while scanning string literal` was subsequently reported at
 line 73 of the new launcher. The exact original `DSPXMLParser.parseDSPString`
 replaces escaped newlines with actual newlines, including inside a Python
 string literal. The initial test model covered loop checkpoints but omitted

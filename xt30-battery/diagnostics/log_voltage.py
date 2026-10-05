@@ -33,7 +33,7 @@ def trace(duration):
     try:
         start = time.monotonic()
         sample_number = 0
-        # Preserve an earlier trace until the owner copies or removes it.
+        # Preserve an earlier trace until it is explicitly copied or removed.
         with open(OUTPUT, 'x', buffering=1) as output:
             output.write('elapsed_s,voltage_mv\n')
             while True:

@@ -15,12 +15,12 @@ The S1 Lab CLI runtime uses Python sockets and FTP without a vendor DLL.
 
 ## S1 Lab and ADB maintenance
 
-The owner authorizes agents working on an explicitly requested S1 debug task
-to connect and enable temporary root ADB themselves with
+Agents working on an explicitly requested S1 debug task are authorized
+to connect and enable temporary root ADB with
 `s1-lab.cmd run root-adb/scripts/enable_root_adb.py --timeout 40`
 (`python lab-cli/scripts/s1_lab.py run root-adb/scripts/enable_root_adb.py --timeout 40`).
-Do not ask the owner to open the original RoboMaster GUI, paste a program, or
-repeat approval for that maintenance step. Keep the GUI closed; neither its
+Do not require the original RoboMaster GUI, manual program pasting, or
+repeated approval for that maintenance step. Keep the GUI closed; neither its
 installation nor its bridge DLL is needed by the standalone CLI.
 
 Check `s1-lab.cmd status` first and respect an occupied Lab. Never stop or

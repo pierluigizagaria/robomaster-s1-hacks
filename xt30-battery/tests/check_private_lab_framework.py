@@ -1,4 +1,4 @@
-"""Inspect the user's private firmware reference without distributing its code."""
+"""Inspect a local private firmware reference without distributing its code."""
 import ast
 import hashlib
 from pathlib import Path

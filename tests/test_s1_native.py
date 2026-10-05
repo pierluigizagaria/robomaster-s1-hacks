@@ -151,7 +151,7 @@ class WireTests(unittest.TestCase):
 
 class NativeTests(unittest.TestCase):
     def test_output_utf8_lengths_and_state_validation(self):
-        text = 'Ciao è'
+        text = 'Hello café'
         self.assertEqual(native.decode_output(bytes([0, 2]) + struct.pack('<H', len(text)) + text.encode())['infoContent'], text)
         state, error = native.decode_state(state_bytes())
         self.assertEqual(state, {'state': 0, 'key': GUID})

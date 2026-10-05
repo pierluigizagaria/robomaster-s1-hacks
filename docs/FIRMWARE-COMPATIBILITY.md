@@ -1,6 +1,6 @@
 # Compatibility matrix
 
-Last updated: **30 September 2026**
+Last updated: **5 October 2026**
 
 ## XT30 Battery Mod
 
@@ -44,7 +44,7 @@ the app-bound copy of `3F/12` for chassis codes `C205` and `C209`.
 - BMS behavior, wiring, cell ratings and regeneration are external hardware
   requirements, not properties guaranteed by passing the software checks.
   The [hardware guide](../xt30-battery/docs/HARDWARE-SETUP.md) adds construction
-  photographs and owner-confirmed USB-C/switch wiring, without new electrical
+  photographs and reported USB-C/switch wiring, without new electrical
   acceptance results or broader firmware compatibility.
 
 See [XT30 Battery Mod](../xt30-battery/README.md) for operation and reversal.
@@ -130,7 +130,7 @@ The source-only patcher accepts the original RoboMaster Android APK 1.2.0
 (versionCode 382), SHA-256
 `82c86a9e77c4dbf9fb4c18660b3d0fbbfd6095c4c4b0eb03e9b2c6aae13059a1`,
 and checks the ARM64/ARMv7 libraries and expected bytes before changing them.
-The optional emulator verifier requires the owner's original APK and Unicorn.
+The optional emulator verifier requires a local original APK and Unicorn.
 Vendor APKs, extracted libraries and private audit files are not distributed.
 
 Historical evidence covers emulator checks and installation/startup of the

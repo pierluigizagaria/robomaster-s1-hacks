@@ -177,7 +177,7 @@ files anywhere on the PC; copying programs into `lab-cli` is unnecessary.
 
 ## Verification and limits
 
-On 29 September 2026, the DLL-free client was tested on the owner's stationary
+On 29 September 2026, the DLL-free client was tested on a stationary
 S1 with the gimbal clear and GUI closed, using a router Wi-Fi network:
 
 - Automatic discovery selected the S1 and `status` reported Ready and Scratch

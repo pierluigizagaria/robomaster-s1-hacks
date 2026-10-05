@@ -9,7 +9,8 @@ with assembly photographs and component references.
 [scripts/xt30_battery.py](../xt30-battery/scripts/xt30_battery.py) is generated
 from readable files under [src](../xt30-battery/src/README.md). Its uncompressed
 JSON bundle is encoded as Base64 and checked with SHA-256. It contains all nine
-required bundled files, including our own native filter encoded in Python, and needs no optional compression module. It makes no
+required bundled files, including the project's original native filter encoded
+in Python, and needs no optional compression module. It makes no
 downloads and needs no ADB. The temporary controller runs separately from Lab;
 the installed runtime is independent of the extracted bundle.
 

@@ -1,7 +1,7 @@
 # Integrated #5/#9 warning filter
 
 16 September 2026. Implemented and tested offline; **real robot acceptance pending**.
-The owner uses only `../scripts/xt30_battery.py`. The ten-file Python bundle
+The Lab entry point is `../scripts/xt30_battery.py`. The ten-file Python bundle
 contains the loader, lifecycle manager and the freestanding ARM payload.
 
 ## Scope
@@ -94,11 +94,11 @@ process restart, partial install failure and independent cleanup failures.
 The existing 63 repository tests cover Lab textual preprocessing, Python 3.6
 syntax, all four modes, manifest/bundle validation, estimate and controller
 settings. The 13 native/filter tests are under `xt30-battery/tests`; they do not contact a
-robot. The owner README and repository compatibility/recovery documentation
+robot. The product README and repository compatibility/recovery documentation
 describe the same integrated version.
 
 Additional lifecycle/reporting and real Linux process tests cover interrupted
-maintenance, stalled/dead owners, inherited output descriptors and bounded
+maintenance, stalled/dead parent processes, inherited output descriptors and bounded
 cleanup. See [the recovery investigation](../docs/LIFECYCLE-RECOVERY.md).
 
 Still required: actual Lab install and A/B/A (#5/#9 before, hidden during,

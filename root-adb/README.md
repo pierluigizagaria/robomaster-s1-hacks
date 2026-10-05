@@ -1,6 +1,6 @@
 # Root ADB Access
 
-Open a temporary root ADB connection to the RoboMaster S1 over Wi-Fi for owner
+Open a temporary root ADB connection to the RoboMaster S1 over Wi-Fi for
 maintenance and diagnostics. On Windows with Python 3.10+, use the
 [S1 Lab CLI](../lab-cli/README.md) to do this without opening the original GUI
 or already having ADB. There is one maintained program:

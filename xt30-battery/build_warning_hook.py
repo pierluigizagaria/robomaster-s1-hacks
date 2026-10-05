@@ -1,4 +1,4 @@
-"""Developer-only deterministic native hook build. Owner uses xt30_battery.py."""
+"""Deterministic native hook build for development; Lab uses xt30_battery.py."""
 import argparse
 import hashlib
 from pathlib import Path

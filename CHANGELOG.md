@@ -2,9 +2,13 @@
 
 ## Unreleased
 
+- Reworded documentation and source comments in a technical style, removing
+  personal attribution while preserving evidence limits and maintenance rules.
+- Translated the Android offline guide and Italian test sample text into
+  English, preserving documented evidence and Unicode test coverage.
 - Expanded the XT30 hardware guide and README with seven assembly photographs
   and the BMS product image, a BMS terminal map, USB-C charging and the switch
-  on XT30 positive only. Added owner-supplied AliExpress/MakerWorld references
+  on XT30 positive only. Added assembly-specific AliExpress/MakerWorld references
   and three-port Wago junction details; removed image metadata and identifying
   labels/background content. Construction evidence does not extend electrical
   qualification or software/hardware acceptance coverage.
